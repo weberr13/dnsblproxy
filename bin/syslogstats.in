@@ -1,0 +1,25 @@
+#!/bin/sh
+date
+total=`grep "HELO\." $1 | awk '{print $10}' | grep -vic Colorado.EDU`
+unknown=`grep -c "\.\.\. User unknown" $1`
+echo total accepted rcpt: `expr $total - $unknown`
+echo total sent elsewhere: `grep -c "accepted for delivery" $1`
+echo total unknowns: $unknown
+echo total tagged by spamassassin: `grep -c "Spamassassin spam" $1`
+echo total tagged as virus: `grep -c "Virus spam" $1`
+echo reject 5XX `grep -c reject=5  $1` REJECT
+echo reject 451 `grep -c reject=451  $1` TEMPFAIL
+echo connections from apparent dynamic hosts: `grep "HELO\." $1 | nawk -FHELO. '{print $2}' | grep -v mail | grep -v smtp | grep -v " " | /usr/local/gnu/bin/grep -c -E ".*[0-9]{1,3}\.[0-9]{1,3}\..*---|.*[0-9]{1,3}\-[0-9]{1,3}\-.*---|.*[0-9]{1,3}\_[0-9]{1,3}.*---|.*[0-9]{5}.*"`
+echo Dictionary probes: `grep -c "did not issue MAIL" $1`
+echo connections from bad RDNS : `grep -c RDNS.Fix.reverse $1`
+#for i in `awk '{print $1}' INSTALL_PREFIX/bin/dsldomains` ; do
+# echo $i dsl domain with `grep -c $i $1` connections | grep -v " 0 "
+#done
+#echo Biggest offenders of RDNS:
+#INSTALL_PREFIX/bin/rdnsfailures | awk '$1 > 49 {print}'
+#echo apparent dsl hosts
+#INSTALL_PREFIX/bin/dslheloers | awk '$1 > 49 {print}'
+#echo HELO as hotmail yahoo but no rdns
+#INSTALL_PREFIX/bin/otherspoofers hotmail yahoo \\.colorado\\.edu \^aol\\.com \^mail\\.com \^juno\\.com \^excite\\.com | awk '$1 > 49 {print}'
+#echo Dictionary attackers
+#INSTALL_PREFIX/bin/dictprobes  | awk '$1 > 49 {print}'

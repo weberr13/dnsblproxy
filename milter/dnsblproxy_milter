@@ -1,0 +1,861 @@
+#!/usr/local/bin/perl
+#
+# Robert Weber's milter, some parts extracted from spamcheck.milter.pl
+# Derek Balling
+# v 0.1  Fri Aug 13 15:57:51 MDT 2004
+
+
+use Sendmail::Milter;
+use Sendmail::AccessDB qw(lookup);
+use Socket;
+use Sys::Syslog qw(:DEFAULT setlogsock);
+use DB_File;
+use Net::CIDR;
+use Net::DNS;
+use Sys::Hostname;
+use File::Scan::ClamAV;
+
+my $USESYSLOG = 0;
+my $FACILITY = 'mail';
+my $MYNAME = hostname;
+my $PID_FILE = '/var/run/mymilter.pid';
+my $DEBUG = 0;
+my $MAXHITS = 10;
+my $TARMAX = 100;
+#my $SPAMC = "/usr/local/perl/bin/spamassassin ";
+my $HEADERTESTS = 0;
+my $access_db = "/etc/sendmail/access.db";
+my $SPAMC = "/usr/local/perl/bin/spamc -d spamd2 -p 789 ";
+#my $AVPROG = "/usr/local/clamav/bin/clamdscan";
+#my $AVARGS = "--quiet";
+my $av = new File::Scan::ClamAV;
+my @dnsbls=("combined.njabl.org","bl.spamcop.net","sbl-xbl.spamhaus.org","dnsbl.sorbs.net","cbl.abuseat.org","opm.blitzed.org","list.dsbl.org");
+
+my @badattach=("exe","pif","scr","sct","vbs","vbe","bat","com","cpl","cmd","vcf","hlp","eml","dll","lnk","ocx","zip");
+#my @badattach(".exe",".pif",".scr",".sct",".vbs",".vbe",".bat",".com",".cpl",".cmd",".vcf",".hlp",".eml",".dll",".lnk",".ocx")
+my $missmatchhosts="prodigy.net|bulk.scd.yahoo.com|mail.bellsouth.net";
+
+sub connect_callback
+{
+    my $ctx = shift;
+    my $hostname = shift;
+    my $sockaddr_in = shift;
+    my ($port, $iaddr);
+    print "connect callback\n" if $DEBUG;
+    my $myhostname = $ctx->getsymval('j');
+#	print "j=$myhostname\n" if $DEBUG;
+    my $myipaddr = $ctx->getsymval('{if_addr}');
+#    print "if_addr=$myipaddr\n" if $DEBUG;
+    my $myconnecthostname = $ctx->getsymval('{if_name}');
+#    print "if_name=$myconnecthostname\n" if $DEBUG;
+    my $client_resolve = $ctx->getsymval('{client_resolve}');
+    ($port, $iaddr) = sockaddr_in($sockaddr_in);
+    my $ip_addr = inet_ntoa($iaddr);
+# don't do anthing for local mail
+    print "Checking $ip_addr is $myipaddr or localhost\n" if $DEBUG;
+    if ( $ip_addr eq "127.0.0.1" || $ip_addr eq $myipaddr ) {
+	$ctx->setpriv(undef);
+	return SMFIS_ACCEPT; 
+    }
+
+    print "Checking $ip_addr in access_db\n" if $DEBUG;
+    my $ip_wl_access = lookup($ip_addr,
+                              'type' => 'ip',
+                              'file' => $access_db,
+                              'qualifier' => 'connect'
+                              );
+    my $ip_wl_access = lookup($ip_addr,
+                           'type' => 'ip',
+                           'file' => $access_db
+                           )
+        if ! defined $ip_wl_access;
+
+#    return SMFIS_ACCEPT if $ip_wl_access eq 'RELAY';
+    
+    my %hash = ( 'host' => $hostname,
+                 'client_resolve' => $client_resolve,
+                 'ip_addr' => $ip_addr,
+		 'myhostname' => $myhostname,
+		 'myipaddr' => $myipaddr,
+		 'myconnecthostname' => $myconnecthostname,
+		 'suspect_mail' => 0,
+		 'ip_wl_access' => $ip_wl_access,
+		 'numrcpt' => 0);
+    $ctx->setpriv(\%hash);
+    print "host $hostname, resolve $client_resolve, ip $ip_addr\n" if $DEBUG;
+ 
+    return SMFIS_CONTINUE;
+}
+
+sub helo_callback
+{
+    print "helo callback\n" if $DEBUG;
+    my $ctx = shift;
+    my $helo_hostname = shift;
+    my $href = $ctx->getpriv();
+    $$href{'helo_hostname'} = $helo_hostname;
+    $ctx->setpriv($href);
+    print "host $$href{'host'}, resolve $$href{'client_resolve'}, ip $$href{'ip_addr'}, suspect $$href{'suspect_mail'}, helo $$href{'helo_hostname'}\n" if $DEBUG;
+    if ( ($helo_hostname =~ /^colorado.edu/i || $helo_hostname =~ /^$MYNAME/i) && $$href{'myipaddr'} != $$href{'ip_addr'} && $$href{'ip_addr'} !~ /127.0.0.1/
+&& $$href{'ip_wl_access'} ne 'RELAY') {
+	my $reason = "Contact trouble\@mailbounce.colorado.edu bogus HELO name used $helo_hostname";
+	$$href{'helo_argument'} = $reason;
+	print "$reason\n" if $DEBUG;
+        $ctx->setpriv($href);
+    }
+    if ( $helo_hostname =~ /(^([\d]{1,3}\.){3,3}([\d]{1,3})$)/ ) {
+	$$href{'suspect_mail'} = 1;
+	$$href{'suspect_reason'} = "Suspicious helo, looks like an ip";
+	print "$$href{'suspect_reason'}\n" if $DEBUG;
+        $ctx->setpriv($href);
+    }
+    if ( $helo_hostname =~ /(([\d]{1,3}\-){2,}([\d]{1,3}){1,}\.[\w]?)/ ) {
+
+	$$href{'suspect_mail'} = 1;
+	$$href{'suspect_reason'} = "Suspicious helo, looks like a dsl name";
+        print "$$href{'suspect_reason'}\n" if $DEBUG;
+        $ctx->setpriv($href);
+    }
+    if ( $helo_hostname =~ /(([\d]{7,}){1,}[\w]*\.[\w]?)/ ) {
+
+	$$href{'suspect_mail'} = 1;
+	$$href{'suspect_reason'} = "Suspicious helo, name with lots of numbers";
+        print "$$href{'suspect_reason'}\n" if $DEBUG;
+        $ctx->setpriv($href);
+    }
+    if ( $helo_hostname !~ /^(?:[A-Za-z0-9]+(?:-+[A-Za-z0-9]+)*(?:\.[A-Za-z0-9]+(?:-+[A-Za-z0-9]+)*)+)$/ ) {
+	$$href{'suspect_mail'} = 1;
+	$$href{'suspect_reason'} = "Suspicious helo, not a fqdn";
+        print "$$href{'suspect_reason'}\n" if $DEBUG;
+        $ctx->setpriv($href);
+    }
+	
+
+    return SMFIS_CONTINUE;
+
+}
+
+sub from_callback
+
+{
+
+    print "from callback\n" if $DEBUG;
+    my $ctx = shift;
+    my @args = @_;
+    my $auth_authen = $ctx->getsymval('{auth_authen}');
+    my $messageid = $ctx->getsymval('i');
+
+    my $sender = $args[0];
+    my $clean_sender = lc $sender;
+    $clean_sender =~ s/^\s*\<//;
+    $clean_sender =~ s/\>\s*$//;
+#    if ( $clean_sender !~ /weberr/i && $clean_sender !~ /scudder27/i ) {
+#	return SMFIS_ACCEPT;
+#    }
+
+    my $href = $ctx->getpriv();
+    $$href{'clean_sender'} = $clean_sender;
+    $$href{'dirty_sender'} = $sender;
+    $$href{'messageid'} = $messageid;
+    delete $$href{'already_got_a_rcpt'};
+    $ctx->setpriv($href);
+    my $rhs = $clean_sender;
+    $rhs =~ s/.*\@//;
+    my @rhsarray = (reverse(split /\./,$rhs));
+    $rhs = join(".",$rhsarray[1], $rhsarray[0]);
+    my $connecting_host = $$href{'host'};
+
+    print "$connecting_host =~ $rhs \n" if $DEBUG;
+    if ( !(($connecting_host =~ /$rhs/i) && ($connecting_host =~ /$missmatchhosts/) )  ) {
+    		$$href{'suspect_mail'} = 1;
+		$$href{'suspect_reason'} = "address missmatch";
+        	print "$$href{'suspect_reason'}\n" if $DEBUG;
+    		$ctx->setpriv($href);
+    }
+    print "host $$href{'host'}, resolve $$href{'client_resolve'}, ip $$href{'ip_addr'}, suspect $$href{'suspect_mail'}, helo $$href{'helo_hostname'}, clean_sender $$href{'clean_sender'}, dirty_sender $$href{'dirty_sender'}\n" if $DEBUG;
+
+    return SMFIS_CONTINUE;
+
+}
+
+sub rcpt_callback
+
+{
+    print "rcpt callback\n" if $DEBUG;
+
+    my $ctx = shift;
+    my $href = $ctx->getpriv();
+    $$href{'numrcpt'}++;
+    $$href{'allrcpt'} .= shift;
+
+    if ( $$href{'numrcpt'} > $TARMAX ) {
+	print "Tarpit enabled...\n" if $DEBUG;
+    	$$href{'suspect_mail'} = 1;
+	sleep 10;
+    }
+	
+    my @args = @_;
+
+    my $recip = $args[0];
+    $recip =~ s/^\<//;
+    $recip =~ s/\>$//;
+    my $end_user = $ctx->getsymval('{rcpt_addr}');
+    $ctx->setpriv($href);
+    my $clean_sender = $$href{'clean_sender'};
+    my $dirty_sender = $$href{'dirty_sender'};
+    my $hostname = $$href{'host'};
+    my $ip_addr = $$href{'ip_addr'};
+    my $helo_hostname = $$href{'helo_hostname'};
+    print "host $$href{'host'}, resolve $$href{'client_resolve'}, ip $$href{'ip_addr'}, suspect $$href{'suspect_mail'}, helo $$href{'helo_hostname'}, clean_sender $$href{'clean_sender'}, dirty_sender $$href{'dirty_sender'}\n" if $DEBUG;
+
+    my $access_sender = lookup($clean_sender, 'type' => 'mail', 'file' => $access_db, 'qualifier' => 'from');
+        $sender_wl_access = lookup($clean_sender,
+                               'type' => 'mail',
+                               'file' => $access_db
+                               )
+        if ! defined $sender_wl_access;
+
+
+
+# bogus helo stuff
+    if ( defined $$href{'helo_argument'} ) {
+	my $reason = $$href{'helo_argument'};
+	$ctx->setreply('552',"5.7.1",$reason);
+	print "rejecting mail due to helo argument $reason" if $DEBUG;
+	syslog('notice','%s/%s bad helo %s',$ip_addr, $hostname, $reason) if $USESYSLOG;
+	$ctx->setpriv(undef);
+	return SMFIS_REJECT;
+    }	
+
+    return SMFIS_CONTINUE if $$href{'ip_wl_access'} eq 'OK';
+    return SMFIS_CONTINUE if $$href{'ip_wl_access'} eq 'RELAY';
+    return SMFIS_CONTINUE if $sender_wl_access eq 'OK';
+
+# our blacklist next
+#    my $reversed_ip = join '.', (reverse(split /\./,$ip_addr));
+#    my $resolve = $reversed_ip . '.bl.colorado.edu' ;
+#    my ($name,$aliases,$addrtype,$length,@addrs) = gethostbyname($resolve);
+#    if ($#addrs > -1) {
+#	my $reason = "Mail from block-listed site ($ip_addr) refused,
+#contact trouble\@mailbounce.colorado.edu";
+#	$ctx->setreply('550',"5.7.1",$reason);
+#	syslog('notice','%s/%s 550 <%s> <%s> connect_ip_dnsbl "%s"',$ip_addr,$hostname,$clean_sender,$recip,$reason) if $USESYSLOG;
+#	$ctx->setpriv(undef);
+#	return SMFIS_REJECT;
+#    }
+# test case
+#    if ($ip_addr =~ /204.188.101.117/ ) {
+#	my $reason = "Mail from block-listed site ($ip_addr) refused, contact trouble\@mailbounce.colorado.edu";
+#	$ctx->setreply('550',"5.7.1",$reason);
+#	syslog('notice','%s/%s 550 <%s> <%s> connect_ip_dnsbl "%s"',$ip_addr,$hostname,$clean_sender,$recip,$reason);
+#	$ctx->setpriv(undef);
+#	return SMFIS_REJECT;
+#    }
+    my $meg;
+    if ($$href{'client_resolve'} ne 'OK')
+    {
+	if ($resolve_status eq 'temp')
+	{	$msg="temp fail"; }
+	if ($resolve_status eq 'forged' )
+	{	$msg="forged"; }
+	if ($resolve_status eq 'fail' )
+	{	$msg="failed"; }
+	syslog('info','mail to %s from %s/%s did not resolve, helo is %s, %s', $ip_addr,$hostname,$helo_hostname,$recip,$msg) if $USESYSLOG;
+    		$$href{'suspect_mail'} = 1;
+		$$href{'suspect_reason'} = "RDNS error";
+        	print "$$href{'suspect_reason'}\n" if $DEBUG;
+    		$ctx->setpriv($href);
+#	return SMFIS_TMPFAIL;
+#	$ctx->setpriv(undef);
+#	return SMFIS_REJECT;
+    }
+    if ( $$href{'suspect_mail'} ) {
+#    if ($ip_addr =~ /204.188.101.117/ ) {
+#	my $reason = $$href{'suspect_reason'} . " " . "from ($ip_addr) also blacklisted contact trouble\@mailbounce.colorado.edu";
+#	$ctx->setreply('550',"5.7.1",$reason);
+#	syslog('notice','%s/%s 553 <%s> <%s> connect_ip_dnsbl "%s"',$ip_addr,$hostname,$clean_sender,$recip,$reason);
+#	$ctx->setpriv(undef);
+#	return SMFIS_REJECT;
+#    }
+	foreach my $zone ( @dnsbls ) 
+	{
+	        print "checking blacklist $zone\n" if $DEBUG;
+    		my $reversed_ip = join '.', (reverse(split /\./,$ip_addr));
+		my $resolve = $reversed_ip . '.' . $zone;
+		my ($name,$aliases,$addrtype,$length,@addrs) =
+			gethostbyname($resolve);
+		if ($#addrs > -1)
+		{
+			my $reason = $$href{'suspect_reason'} . " " . " from ($ip_addr) also blacklisted on $zone contact trouble\@mailbounce.colorado.edu";
+			$ctx->setreply(550,"5.7.1",$reason);
+			syslog('notice','%s/%s 553 <%s> <%s> connect_ip_dnsbl "%s"',$ip_addr,$hostname,$clean_sender,$recip,$reason) if $USESYSLOG;
+			$ctx->setpriv(undef);
+			return SMFIS_REJECT;
+		}
+	}
+		
+
+        $$href{'suspect_mail'} = 0;	
+	}
+    print "rcpt callback end\n" if $DEBUG;
+    return SMFIS_CONTINUE;
+
+}
+
+sub body_callback : locked
+
+{
+
+    print "body callback\n" if $DEBUG;
+    my $ctx = shift;
+
+    my $body_segment = shift;
+#    my $length = shift;
+    my $href = $ctx->getpriv();
+    $$href{'body'} .= $body_segment;
+
+    $ctx -> setpriv($href);
+    
+    return SMFIS_CONTINUE;
+
+}
+sub header_callback : locked
+
+{
+
+    print "header callback\n" if $DEBUG;
+    my $ctx = shift;
+
+    my $Field = shift;
+    my $value = shift;
+
+    my $href = $ctx->getpriv();
+    $$href{'header'} .= $Field . ": " . $value . "\n";
+    if ($HEADERTESTES ) {
+    if ( $Field =~ /From/ ) {
+     if ( $$href{'clean_sender'} !~ /$value/ ) {
+	$$href{'suspect_mail'} = 1;
+    print "host $$href{'host'}, resolve $$href{'client_resolve'}, ip $$href{'ip_addr'}, suspect $$href{'suspect_mail'}, helo $$href{'helo_hostname'}, clean_sender $$href{'clean_sender'}, dirty_sender $$href{'dirty_sender'}\n" if $DEBUG;
+	print "$$href{'clean_sender'} != $value from missmatch\n" if $DEBUG;
+     }
+    }
+    elsif ( $Field =~ /To/ ) {
+     my @rcptlist = split(",",$value);
+     foreach my $headerrcpt ( @rcptlist ) {
+     $headerrcpt =~ s/[\s]//g;
+     print "$Field: $$href{'allrcpt'} / $headerrcpt\n" if $DEBUG;
+     if ( $$href{'allrcpt'} !~ /.*$headerrcpt.*/ ) {
+	$$href{'suspect_mail'} = 1;
+    print "host $$href{'host'}, resolve $$href{'client_resolve'}, ip $$href{'ip_addr'}, suspect $$href{'suspect_mail'}, helo $$href{'helo_hostname'}, clean_sender $$href{'clean_sender'}, dirty_sender $$href{'dirty_sender'}\n" if $DEBUG;
+	print "$Field: $$href{'allrcpt'} / $headerrcpt does not appear in any rcpts \n" if $DEBUG;
+     }
+     }
+    }
+    elsif ( $Field =~ /Cc/ ) {
+     my @rcptlist = split(",",$value);
+     foreach my $headerrcpt ( @rcptlist ) {
+#     $headerrcpt =~ /[\w\.]{1,}\@[\w\.]{2,}/;
+     $headerrcpt =~ s/[\s]//g;
+#     $headerrcpt = $1;
+     print "$Field: $$href{'allrcpt'} / $headerrcpt\n" if $DEBUG;
+     if ( $$href{'allrcpt'} !~ /.*$headerrcpt.*/ ) {
+	$$href{'suspect_mail'} = 1;
+    print "host $$href{'host'}, resolve $$href{'client_resolve'}, ip $$href{'ip_addr'}, suspect $$href{'suspect_mail'}, helo $$href{'helo_hostname'}, clean_sender $$href{'clean_sender'}, dirty_sender $$href{'dirty_sender'}\n" if $DEBUG;
+	print "$Field: $$href{'allrcpt'} / $headerrcpt does not appear in any rcpts \n" if $DEBUG;
+     }
+     }
+    }
+    }
+    $ctx -> setpriv($href);
+    return SMFIS_CONTINUE;
+
+}
+sub eoh_callback
+{
+    my $ctx = shift;
+    my $href = $ctx->getpriv();
+    $ctx->setpriv($href);
+    print "EOH callback\n" if $DEBUG;
+    return SMFIS_CONTINUE;
+}
+
+sub eom_callback
+
+{
+    
+    my $ctx = shift;
+
+    my $href = $ctx->getpriv();
+    print "eom callback\n" if $DEBUG;
+
+    if ( $$href{'suspect_mail'} ) {
+      my $access_sender = lookup($clean_sender, 'type' => 'mail', 'file' => $access_db, 'qualifier' => 'from');
+        my  $sender_wl_access = lookup($clean_sender,
+                               'type' => 'mail',
+                               'file' => $access_db
+                               )
+        if ! defined $sender_wl_access;
+
+
+    print "Checking $ip_addr in access_db\n" if $DEBUG;
+    my $ip_wl_access = $$href{'ip_wl_access'};
+
+    break if $ip_wl_access eq 'OK';
+    break if $ip_wl_access eq 'RELAY';
+    break if $sender_wl_access eq 'OK';
+	foreach my $zone ( @dnsbls ) 
+	{
+	        print "checking blacklist $zone\n" if $DEBUG;
+    		my $reversed_ip = join '.', (reverse(split /\./,$ip_addr));
+		my $resolve = $reversed_ip . '.' . $zone;
+		my ($name,$aliases,$addrtype,$length,@addrs) =
+			gethostbyname($resolve);
+		if ($#addrs > -1)
+		{
+			my $reason = $$href{'suspect_reason'} . " " . " from ($ip_addr) also blacklisted on $zone contact trouble\@mailbounce.colorado.edu";
+			$ctx->setreply(550,"5.7.1",$reason);
+			syslog('notice','%s/%s 553 <%s> <%s> connect_ip_dnsbl "%s"',$ip_addr,$hostname,$clean_sender,$recip,$reason) if $USESYSLOG;
+			$ctx->setpriv(undef);
+			return SMFIS_REJECT;
+		}
+	}
+		
+
+        $$href{'suspect_mail'} = 0;	
+    }
+    my $messagebody = $$href{'header'} . "\n" . $$href{'body'};
+    my $newbody;
+
+    my $messageid = $$href{'messageid'};
+# bad attachment section
+    print "attchment filter section\n" if $DEBUG;
+    if ( $messagebody =~ /Content-Type: multipart\/mixed/i ) {
+	print "found multipart\/mixed\n" if $DEBUG;
+	foreach my $attachtype ( @badattach ) {
+	  print "checking for $attachtype\n" if $DEBUG;
+	  if ( $messagebody =~ /name=\".*\.$attachtype\"$/ ) {
+		  my $reason = "Bad attachment $attachtype rename or contact trouble\@mailbounce.colorado.edu";
+	          $ctx->setreply('556',"5.7.1",$reason);
+	          print "rejecting mail due to attachment $reason\n" if $DEBUG;
+	          syslog('notice','%s/%s bad body attach %s',$ip_addr, $hostname, $reason) if $USESYSLOG;
+		  $ctx->setpriv(undef);
+	          return SMFIS_REJECT;
+        }  }
+        my ($code,$virus) = $av->streamscan($messagebody);
+        if ( $code eq 'FOUND' ) {
+	 my $reason = "$virus virus detected contact trouble\@mailbounce.colorado.edu";
+	 $ctx->setreply('557',"5.7.1",$reason);
+	 print "rejecting mail due to clamav $reason" if $DEBUG;
+	 syslog('notice','%s/%s bad body virus %s',$ip_addr, $hostname, $reason) if $USESYSLOG;
+   	 unlink "/var/spool/mqueue/mf$messageid";
+	 $ctx->setpriv(undef);
+         return SMFIS_REJECT;
+        } elsif( $code eq 'OK' ) {
+	 print "Clean attachments\n" if $DEBUG;
+        } else {
+         print $av>errstr ."\n" if $DEBUG;
+	 syslog('crit','%s',$av->errstr) if $USESYSLOG;
+        }
+
+    }
+
+# spamc section
+
+
+    open(SPAMC, "| $SPAMC > /var/spool/mqueue/mf$messageid");
+ 
+    print SPAMC "$messagebody";
+    close SPAMC || warn "command exited $?";
+    open(FILE,"cat /var/spool/mqueue/mf$messageid|");
+    my @rawbody = <FILE>;
+    close FILE;
+#    if ( $DEBUG ) {
+#     @AVPROG = ("$AVPROG","/var/spool/mqueue/mf$messageid");
+#    } else {
+#     @AVPROG = ("$AVPROG","$AVARGS","/var/spool/mqueue/mf$messageid");
+#    }
+#    print "Running @AVPROG\n" if $DEBUG;
+#    my $return =  system(@AVPROG) >> 8;
+#    print "return = $return\n" if $DEBUG;
+#
+#    if ( $return == 1 ) {
+#	 my $reason = "Virus detected contact trouble\@mailbounce.colorado.edu";
+#	 $ctx->setreply('557',"5.7.1",$reason);
+#	 print "rejecting mail due to clamav $reason" if $DEBUG;
+#	 syslog('notice','%s/%s bad body virus %s',$ip_addr, $hostname, $reason);
+#   	 unlink "/var/spool/mqueue/mf$messageid";
+#	  $ctx->setpriv(undef);
+#         return SMFIS_REJECT;
+#    }
+    unlink "/var/spool/mqueue/mf$messageid";
+    my $stillheader = 1;
+
+    foreach my $line ( @rawbody ) {
+      if ( $stillheader > 0 ) {
+        print "$line" if $DEBUG;
+        if ( $line =~ /X-Milter/ ) {
+           print "more Xmilter header\n" if $DEBUG;
+        }
+	elsif ( ($line =~ /X-Spam/ || ( $$href{'spamyes'} =~ /Yes/ && $line =~ /MIME/ ) || ( $$href{'spamyes'} =~ /Yes/ && $line =~ /Content-Type/) || $line =~ /Received/ ) && ! defined $$href{'moreheader'}) {
+          my @headerline = split(": ",$line);
+	  $$href{'newfield'} = shift @headerline;
+          $$href{'moreheader'} = (join(": ",@headerline));
+	  if ( $line =~ /X-Spam-Status/ ) {
+	    my @spamhits = split(", ",$$href{'moreheader'});
+	    $$href{'spamyes'} = shift @spamhits;
+	    $$href{'spamhits'} = shift @spamhits;
+	    print "spamyes $$href{'spamyes'}\n" if $DEBUG;
+	    my @spamhits = split("=",$$href{'spamhits'});
+	    $$href{'spamhits'} = $spamhits[1];
+	    print "spamhits $$href{'spamhits'}\n" if $DEBUG;
+          }
+	}
+	elsif ( ($line =~ /X-Spam/ || ( $$href{'spamyes'} =~ /Yes/ && $line =~ /MIME/ ) || ( $$href{'spamyes'} =~ /Yes/ && $line =~ /Content-Type/) || $line =~ /Received/ ) && defined $$href{'moreheader'}) {
+          chomp ($$href{'moreheader'});
+          print "added $$href{'newfield'} ,$$href{'moreheader'}\n" if $DEBUG;
+	  $ctx->addheader($$href{'newfield'} ,$$href{'moreheader'});
+	  if ( defined $$href{'spamhits'} ) {
+		print "$$href{'spamhits'} > $MAXHITS\n" if $DEBUG;
+		if ( $$href{'spamhits'} > $MAXHITS ) {
+		  $$href{'moreheader'} = join(" ",split("\n",$$href{'moreheader'}));
+		  my $reason = "Spam detected contact trouble\@mailbounce.colorado.edu " . "$$href{'moreheader'}";
+	          $ctx->setreply('554',"5.7.1",$reason);
+	          print "rejecting mail due to spamassassin $reason" if $DEBUG;
+	          syslog('notice','%s/%s bad body spam %s',$ip_addr, $hostname, $reason) if $USESYSLOG;
+		  undef  $$href{'spamhits'};
+	 	  $ctx->setpriv(undef);
+	          return SMFIS_REJECT;
+                } else { undef $$href{'spamhits'} }
+	  }
+	  undef $$href{'moreheader'};
+          @headerline = split(": ",$line);
+	  $$href{'newfield'} = shift @headerline;
+          $$href{'moreheader'} .= (join(": ",@headerline));
+	  if ( $line =~ /X-Spam-Status/ ) {
+	    my @spamhits = split(", ",$$href{'moreheader'});
+	    $$href{'spamyes'} = shift @spamhits;
+	    $$href{'spamhits'} = shift @spamhits;
+	    print "spamyes $$href{'spamyes'}\n" if $DEBUG;
+	    my @spamhits = split("=",$$href{'spamhits'});
+	    $$href{'spamhits'} = $spamhits[1];
+	    print "spamhits $$href{'spamhits'}\n" if $DEBUG;
+          }
+	}
+        elsif ( $line =~ /^$/ ) { 
+          chomp ($$href{'moreheader'});
+          print "added $$href{'newfield'} ,$$href{'moreheader'}\n" if $DEBUG;
+	  $ctx->addheader($$href{'newfield'} ,$$href{'moreheader'});
+	  undef $$href{'moreheader'};
+#	  undef $$href{'spamyes'};
+	  $stillheader = 0 ; 
+          print "end of headers\n" if $DEBUG; 
+        }
+	elsif ( $line =~ /: / && defined $$href{'moreheader'}) {
+          chomp ($$href{'moreheader'});
+          print "added $$href{'newfield'} ,$$href{'moreheader'}\n" if $DEBUG;
+	  $ctx->addheader($$href{'newfield'} ,$$href{'moreheader'});
+	  undef $$href{'moreheader'};
+	}
+	elsif ( $line =~ /: / && !defined $$href{'moreheader'}) {
+	}
+	elsif ( defined $$href{'moreheader'} ) {
+	  $$href{'moreheader'} .= $line;
+	}
+        else {
+	}
+      } else {
+       $newbody .= $line;
+      }
+    }
+#    print "$newbody" if $DEBUG;
+    if ( $$href{'spamyes'} =~ /Yes/ ) {
+     if ( not $ctx->replacebody($newbody)) {
+	print "write error\n";
+     }
+    }
+    undef $newbody;
+    $ctx->setpriv(undef);
+    return SMFIS_ACCEPT;
+
+}
+
+sub abort_callback
+
+{
+
+    print "abort callback\n" if $DEBUG;
+my $ctx = shift;
+
+$ctx->setpriv(undef);
+
+return SMFIS_CONTINUE;
+
+}
+
+sub close_callback
+
+{
+
+    print "close callback\n" if $DEBUG;
+my $ctx = shift;
+
+$ctx->setpriv(undef);
+
+return SMFIS_CONTINUE;
+
+}
+
+my %my_callbacks =
+
+(
+
+        'connect' =>    \&connect_callback,
+        'helo' =>       \&helo_callback,
+        'envfrom' =>    \&from_callback,
+        'envrcpt' =>    \&rcpt_callback,
+        'header' =>     \&header_callback,
+        'eoh' =>        \&eoh_callback,
+        'body' =>       \&body_callback,
+        'eom' =>        \&eom_callback,
+        'abort' =>      \&abort_callback,
+        'close' =>      \&close_callback,
+
+);
+sub access_file
+{
+    my ($end_user,$whichlist) = @_;
+
+    my $master_filename = "/etc/mail/access.db";
+    print "looking up '$end_user' file default for '$whichlist'\n" if $DEBUG;
+    if (! defined $whichlist)
+    {
+        return '/dev/null';
+    }
+    else
+    {
+	return $master_filename;
+    }
+}
+
+
+
+sub bad_mx_set : locked
+{
+    # rc = 0   Good
+    # rc = 1   Error
+    # rc = 2   Temp Failure
+
+    my $domain = shift;
+    my $res = Net::DNS::Resolver->new;
+    my @mx = mx($res,$domain);
+
+    my $rc = 0;
+    my $rc_string = 'OK';
+
+    my @ip_addr = ();
+
+    if (! @mx)
+    {
+        if ( $res->errorstring eq 'NOERROR')
+        {
+            print "$domain has no MX, using hostname\n" if $DEBUG;
+            @mx = ($domain);
+        }
+        elsif ( $res->errorstring eq 'NXDOMAIN')
+        {
+            print "MX lookup on $domain has an NXDOMAIN state.\n" if $DEBUG;
+            return (1,"$domain does not exist");
+        }
+        elsif ( $res->errorstring eq 'SERVFAIL')
+        {
+            $rc = 2;
+            $rc_string = "Temporarily unable to reach NS servers for
+$domain to do an MX lookup.";
+            @mx = ();
+            print "MX lookup on $domain has SERVFAIL state.\n" if $DEBUG;
+        }
+        else
+        {
+            $rc = 2;
+            $rc_string = $res->errorstring;
+            @mx = ();
+        }
+    }
+
+    if ( ! $rc )
+    {
+        foreach my $mx_entry (@mx)
+        {
+            my $pref;
+            if (ref $mx_entry)
+            {
+                $pref = $mx_entry->exchange;
+            }
+            else
+            {
+                $pref = $mx_entry;
+            }
+            print "Checking MX Entry: $pref\n" if $DEBUG;
+
+            if ($pref =~ /^(\d+\.){3}\d+$/)
+            {
+                return(1,"$pref is not a valid value for an MX RR. Only
+hostnames are valid.");
+            }
+            else
+            {
+                my $query = $res->search($pref);
+                if ($query)
+                {
+                    foreach my $rr ($query->answer)
+                    {
+                        next unless $rr->type eq 'A';
+                        push @ip_addr, ($rr->address);
+                        print "Pushed ", $rr->address, " into \@ip_addr\n"
+if $DEBUG;
+                    }
+                }
+                else
+                {
+                    if ($res->errorstring eq 'SERVFAIL')
+                    {
+                        $rc = 2;
+                        $rc_string = "MX host $pref temporarily not
+confirmable.";
+                    }
+                    elsif ( ($res->errorstring eq 'NXDOMAIN') or
+                            ($res->errorstring eq 'NOERROR') )
+                    {
+                        my $foo = $res->errorstring;
+                        return (1, "MX host $pref has no A RRs ($foo)");
+                    }
+                    else
+                    {
+                        $rc = 2;
+                        $rc_string = $res->errorstring;
+                    }
+                }
+            }
+        }
+        print "Done looking for IP addresses.\n" if $DEBUG;
+        if (@ip_addr)
+        {
+            foreach my $addr (@ip_addr)
+            {
+                print "Checking IP $addr\n" if $DEBUG;
+                foreach my $net (@forbidden)
+                {
+                    print "Checking Network $net\n" if $DEBUG;
+                    if (Net::CIDR::cidrlookup($addr,$net))
+                    {
+                        return (1, "$domain has an MX with an IP in
+reserved space ($addr is in $net)");
+                    }
+                }
+            }
+        }
+
+    }
+
+    return ($rc,$rc_string);
+}
+
+
+BEGIN:
+
+{
+
+if (scalar(@ARGV) < 2)
+
+{
+
+print "Usage: perl $0 \n";
+
+exit;
+
+}
+
+my $conn = Sendmail::Milter::auto_getconn($ARGV[0], $ARGV[1]);
+
+    open RUN, "> $PID_FILE";
+    print RUN "$$\n";
+    autoflush RUN 1;
+    close RUN;
+
+    setlogsock('unix');
+    openlog ('mymilter','cons,pid',$FACILITY);
+
+
+print "Found connection info for '$ARGV[0]': $conn\n";
+
+if ($conn =~ /^local:(.+)$/)
+
+{
+
+my $unix_socket = $1;
+
+if (-e $unix_socket)
+
+{
+
+print "Attempting to unlink UNIX socket '$conn' ... ";
+
+if (unlink($unix_socket) == 0)
+
+{
+
+print "failed.\n";
+
+exit;
+
+}
+
+print "successful.\n";
+
+}
+
+}
+
+if (not Sendmail::Milter::auto_setconn($ARGV[0], $ARGV[1]))
+
+{
+
+print "Failed to detect connection information.\n";
+
+exit;
+
+}
+
+if (not Sendmail::Milter::register($ARGV[0], \%my_callbacks,
+
+SMFI_CURR_ACTS))
+
+{
+
+print "Failed to register callbacks for $ARGV[0].\n";
+
+exit;
+
+}
+
+print "Starting Sendmail::Milter $Sendmail::Milter::VERSION
+
+engine.\n";
+
+if (Sendmail::Milter::main())
+
+{
+
+print "Successful exit from the Sendmail::Milter engine.\n";
+
+}
+
+else
+
+{
+
+print "Unsuccessful exit from the Sendmail::Milter engine.\n";
+
+}
+
+}

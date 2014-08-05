@@ -1,0 +1,19 @@
+#!/bin/sh
+
+date=`date +%m-%d-%Y`
+INSTALL_PREFIX/bin/otherspoofers -s hotmail yahoo \\.colorado\\.edu \^aol\\.com \^mail\\.com \^juno\\.com \^excite\\.com msn\\.com microsoft\\.com hotbot\\.com mailcity\\.com > /tmp/spoofupdates.spoof.$$
+
+INSTALL_PREFIX/bin/checkentry -f /tmp/spoofupdates.spoof.$$ > /tmp/spoofupdates.spoof.$$.
+mv /tmp/spoofupdates.spoof.$$. /tmp/spoofupdates.spoof.$$
+
+if [ "$1" = "-p" ] ; then
+INSTALL_PREFIX/bin/proxyfile /tmp/spoofupdates.spoof.$$ | awk '{print "1 "$1}' > /tmp/spoofupdates.proxies.open.$$
+
+INSTALL_PREFIX/bin/addentry -F -f /tmp/spoofupdates.proxies.open.$$ "Open proxy spam source $date"
+
+fi
+
+INSTALL_PREFIX/bin/checkallbl  /tmp/spoofupdates.spoof.$$ > /tmp/spoofupdates.spoof.bl.$$
+INSTALL_PREFIX/bin/addentry  -f /tmp/spoofupdates.spoof.bl.$$ "HELO spoof spam source $date"
+
+rm /tmp/spoofupdates.*.$$

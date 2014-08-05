@@ -1,0 +1,29 @@
+#!/bin/sh
+
+path=$path:INSTALL_PREFIX/bin
+date=`date +%m-%d-%Y`
+
+INSTALL_PREFIX/bin/condensemaillog -l 1500000 | sort | uniq > /tmp/runallupdates.$$
+nawk '$1 ~ /black/ {print}' /tmp/runallupdates.$$ > /tmp/runallupdates.b.$$
+INSTALL_PREFIX/bin/checkentry -f /tmp/runallupdates.b.$$ > /tmp/runallupdates.b.clean.$$
+INSTALL_PREFIX/bin/checkallbl /tmp/runallupdates.b.clean.$$ > /tmp/runallupdates.b.bl.$$
+nawk '$1 ~ /SA/ {print}' /tmp/runallupdates.b.bl.$$ > /tmp/runallupdates.sa.$$
+echo Spamassassin
+INSTALL_PREFIX/bin/addentry -F -f /tmp/runallupdates.sa.$$ "Spamassassin spam source $date"
+nawk '$1 ~ /VIRUS/ {print}' /tmp/runallupdates.b.bl.$$ > /tmp/runallupdates.vi.$$
+echo Virus
+INSTALL_PREFIX/bin/addentry -F -f /tmp/runallupdates.vi.$$ "Virus source $date"
+nawk '$1 ~ /RDNS/ {print}' /tmp/runallupdates.b.bl.$$ > /tmp/runallupdates.rdns.$$
+echo RDNS
+INSTALL_PREFIX/bin/addentry -F -f /tmp/runallupdates.rdns.$$ "Bad RDNS spam source $date"
+nawk '$1 ~ /HELO/ {print}' /tmp/runallupdates.b.bl.$$ > /tmp/runallupdates.helo.$$
+echo HELO
+INSTALL_PREFIX/bin/addentry -F -f /tmp/runallupdates.helo.$$ "Bad HELO spam source $date"
+#nawk '$1 ~ /white/ {print}' /tmp/runallupdates.$$ > /tmp/runallupdates.w.$$
+#INSTALL_PREFIX/bin/checkentry -F /tmp/runallupdates.w.$$ > /tmp/runallupdates.w.clean.$$
+#INSTALL_PREFIX/bin/checkallbl /tmp/runallupdates.w.clean.$$ > /tmp/runallupdates.w.bl.$$
+#diff /tmp/runallupdates.w.clean.$$ /tmp/runallupdates.w.bl.$$ | awk '$1 == "<" {print $2" "$3" "$4}' > /tmp/runallupdates.w.nobl.$$
+#echo white
+#INSTALL_PREFIX/bin/addentry -F -f /tmp/runallupdates.w.nobl.$$ OK
+
+#rm /tmp/runallupdates*.$$

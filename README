@@ -1,0 +1,32 @@
+DNSBL proxy
+-----------
+
+This is a project designed to allow admins to setup an adaptive dns
+blacklist for use with sendmail(and others) to slow the load of spam.  The
+system is designed to allow data from many dnsbl's to be used, while
+off setting the delay associated with a string of dns lookups for each
+sendmail connection.
+
+sendmail/
+  - Here you will find mc files for the necessary syslog entries used by
+the utilities to find suspicious ips for investigation.
+
+milter/
+  - Here is a perl milter that implements most of the rfc rules(and some
+others) but does the bl querries directly on suspicious hosts.  Clamav and
+spamassassin are also tossed in for good measure. 
+
+bin/
+  - not binary, but executable perl and born scripts.
+
+man/ 
+  - man pages(in development)
+
+doc/ 
+  - what do you think is in the doc dir?
+
+Please read the INSTALL file for the details for setting up a bind zone,
+syslog and sendmail for all of this to work properly.
+
+
+

@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if [ $# -ne 1 ] ; then 
+	echo useage $0 processname
+	exit 1
+fi
+
+PS="/usr/ucb/ps -auxw"
+
+$PS | grep -v grep | grep -v $0 | grep $1 > /dev/null
+if [ $? -ne 0 ] ; then
+	echo dead, restarting
+	$1 &
+fi
+

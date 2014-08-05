@@ -1,0 +1,75 @@
+BEGIN { FS="."}
+{
+if ($4 ~ /\/32/) for ( i = 0 ; i < 1; i++ ) 
+			print $1"."$2"."$3"."$4 
+else
+if ($4 ~ /\/31/) for ( i = 0 ; i < 2; i++ ) 
+			print $1"."$2"."$3"."$4+i 
+else
+if ($4 ~ /\/30/) for ( i = 0 ; i < 4; i++ ) 
+			print $1"."$2"."$3"."$4+i 
+else
+if ($4 ~ /\/29/) for ( i = 0 ; i < 8; i++ ) 
+			print $1"."$2"."$3"."$4+i 
+else
+if ($4 ~ /\/28/) for ( i = 0 ; i < 16; i++ ) 
+			print $1"."$2"."$3"."$4+i 
+else
+if ($4 ~ /\/27/) for ( i = 0 ; i < 32; i++ ) 
+			print $1"."$2"."$3"."$4+i 
+else
+if ($4 ~ /\/26/) for ( i = 0 ; i < 64; i++ ) 
+			print $1"."$2"."$3"."$4+i 
+else
+if ($4 ~ /\/25/) for ( i = 0 ; i < 128; i++ ) 
+			print $1"."$2"."$3"."$4+i 
+else
+if ($4 ~ /0\/24/) for ( i = 0 ; i < 1; i++ ) 
+			print $1"."$2"."$3 
+else
+if ($4 ~ /0\/23/) for ( i = 0 ; i < 2; i++ ) 
+			print $1"."$2"."$3+i 
+else
+if ($4 ~ /0\/22/) for ( i = 0 ; i < 4; i++ ) 
+			print $1"."$2"."$3+i 
+else
+if ($4 ~ /0\/21/) for ( i = 0 ; i < 8; i++ ) print $1"."$2"."$3+i 
+else
+if ($4 ~ /0\/20/ ) for ( i = 0 ; i < 16; i++ ) print $1"."$2"."$3+i 
+else
+if ($4 ~ /0\/19/) for ( i = 0 ; i < 32; i++ ) print $1"."$2"."$3+i 
+else
+if ($4 ~ /0\/18/) for ( i = 0 ; i < 64; i++ ) print $1"."$2"."$3+i 
+else
+if ($4 ~ /0\/17/) for ( i = 0 ; i < 128; i++ ) print $1"."$2"."$3+i 
+else
+if ($4 ~ /0\/16/) for ( i = 0 ; i < 256; i++ ) print $1"."$2"."$3+i
+else
+if ($4 ~ /0\/15/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 2 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/14/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 4 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/13/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 8 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/12/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 16 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/11/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 32 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/10/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 64 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/9/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 128 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/8/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 256 ; j++) print $1"."$2+j"."$3+i
+else
+if ($4 ~ /0\/7/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 256 ; j++) for ( k = 0 ; k < 2 ; k++ ) print $1+k"."$2+j"."$3+i
+else
+if ($4 ~ /0\/6/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 256 ; j++) for ( k = 0 ; k < 4 ; k++ ) print $1+k"."$2+j"."$3+i
+else
+if ($4 ~ /0\/5/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 256 ; j++) for ( k = 0 ; k < 8 ; k++ ) print $1+k"."$2+j"."$3+i
+else
+if ($4 ~ /0\/4/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 256 ; j++) for ( k = 0 ; k < 16 ; k++ ) print $1+k"."$2+j"."$3+i
+else
+if ($4 ~ /0\/3/) for ( i = 0 ; i < 256; i++ ) for (j = 0 ; j < 256 ; j++) for ( k = 0 ; k < 32 ; k++ ) print $1+k"."$2+j"."$3+i
+else
+print $1"."$2"."$3
+}

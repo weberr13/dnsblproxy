@@ -1,0 +1,114 @@
+#!PERL_PATH
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+if ( $#ARGV > 0 ) {
+
+	print "usage accessstats\n";
+
+}
+
+$PREFIX = "INSTALL_PREFIX";
+$DBFILE = join("/",$PREFIX,"lib/accessdbm.db");
+#$accessdb = tie(%accessdb, 'DB_File', $DBFILE, O_CREAT|O_RDWR, 0664) or die "Can't Open db $DBFILE: $!\n";
+#$fd = $accessdb->fd;
+#open(DB_FH, "+<&=$fd") or die "dup $!";
+#
+#unless (flock (DB_FH, LOCK_SH | LOCK_NB )) {
+#        print "$$: CONTENTION; Can't read during write update!
+#                Waiting for write lock ($!) ....";
+#        unless (flock (DB_FH, LOCK_SH)) { die "flock: $!" }
+#}
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die;
+
+
+$DBFILE_ACCESSSTATS = "/tmp/accessdbm.db.accessstats.$$";
+`cp $DBFILE $DBFILE_ACCESSSTATS`;
+
+untie %accessdb;
+undef $accessdb;
+
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE_ACCESSSTATS, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die;
+
+$blockedip=0;
+$blockedc=0;
+$blockedb=0;
+$whitelisted=0;
+
+while ( ($key,$val) = each %accessdb ) {
+	if ( $val =~ /^OK/ ) {
+		$whitelisted++;
+	} else {
+	        @fields = split(/\./,$key);
+		if (! defined $fields[2] ) {
+			$bclass=join(".",$fields[0],$fields[1]);
+			$bclasses{$bclass} = "blocked";
+			$blockedb++;
+		} elsif (! defined $fields[3] ) {
+			$blockedc++;
+			$bclass=join(".",$fields[0],$fields[1]);
+			$cclass=join(".",$fields[0],$fields[1],$fields[2]);
+			$cclasses{$cclass} = "blocked";
+			if ( ! defined $bclasses{$bclass} ) {
+				$bclasses{$bclass}= 256;
+			} elsif ( $bclasses{$bclass} ne "blocked" ) {
+				$bclasses{$bclass} = $bclasses{$bclass}+256;
+			}
+		} else {
+			$bclass=join(".",$fields[0],$fields[1]);
+			$cclass=join(".",$fields[0],$fields[1],$fields[2]);
+			if ( ! defined $bclasses{$bclass} ) {
+				$bclasses{$bclass}= 1;
+			} elsif ( $bclasses{$bclass} ne "blocked" ) {
+				$bclasses{$bclass}++;
+			}
+			if ( ! defined $cclasses{$cclass} ) {
+				$cclasses{$cclass}= 1;
+			} elsif ( $cclasses{$cclass} ne "blocked" ) {
+				$cclasses{$cclass}++;
+			}
+			$blockedip++;
+		}
+	}
+}
+
+#print "Dangerouse B-Class ranges\n";
+#print "#ip	Range\n";
+#while ( ($key,$val) = each %bclasses ) {
+#	if ( $val > 256*15 && $val < 256*250 ) {
+#		print "$val	$key\n";
+#	}
+#
+#}
+print "Dangerouse C-Class ranges\n";
+print "#ip	Range\n";
+while ( ($key,$val) = each %cclasses ) {
+	   if ( $val > 9  ) {
+	    $printclass = 1;
+#	    for $j ( 0..255 ) {
+#	     $checkkey=join(".",$keys[0],$keys[1],$keys[2],$j);
+#	     if ( defined $accessdb{$checkkey} ) {
+#	      if ( $accessdb{$checkkey} =~ /^OK/) {
+#	       $printclass = 0;
+#	      }
+#	     }
+#            }
+	    if ( $printclass == 1 ) {	
+	     print "$val	$key\n";
+	    }
+	   }
+}
+$totalips=(($blockedb*256)+$blockedc)*256 + $blockedip;
+
+print "blocked $totalips ip addresses\n";
+print "blocked individual $blockedip ip addresses\n";
+print "blocked $blockedc c class ranges\n";
+print "blocked $blockedb b class ranges\n";
+print "whitelisted $whitelisted\n";
+
+untie %accessdb;
+undef $accessdb;
+
+`rm $DBFILE_ACCESSSTATS`;
+`rm $DBFILE_ACCESSSTATS.lock`;

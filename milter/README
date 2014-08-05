@@ -1,0 +1,4 @@
+This is the milter.  Please google about how to install milters, I don't
+feel like re-writting all the great docs that are already avalable.
+
+This one is written in perl, edit to your preference before running.

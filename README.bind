@@ -1,0 +1,43 @@
+The dnsbl is intended to use a bind server running a dynamic zone for the
+DNSBL_DOMAIN_NAME zone.  To set this up you need a dns server (Duh) that
+allows updates from the host you have installed dnsblproxy(TODO: getting
+tsig working so we get around tha acl).  You should have a zone setup that
+looks something like this:
+
+zone "DNSBL_DOMAIN_NAME" {
+        type master;
+        file "primary/named.DNSBL_DOMAIN_NAME";
+        allow-update {  192.0.0.1;   // dnsbl host
+                };
+	allow-query {
+                      10.0.0.0/8; 
+                      127.0.0.1/32;
+                      172.16.0.0/12;
+                      192.168.0.0/16;
+// add your networks to this list
+	};
+        allow-transfer {
+                127.0.0.1;   //localhost
+// add your secondaries to this. No secondaries?  GET THEM! you don't want 
+// temp fails on dnsbl queries or mail will start geting 451 errors
+	};
+};
+
+The inital build of the zone needs something to start with:
+
+$ORIGIN .
+$TTL 300        ; 5 minutes (you want this small so whitelists work quickly)
+DNSBL_DOMAIN_NAME	IN	SOA	ns.yourdomain.  postmaster.ns.yourdomain. (
+                                1000000000 ; serial
+                                3600       ; refresh (1 hour)
+                                1200       ; retry (20 minutes)
+                                3600000    ; expire (5 weeks 6 days 16 hours)
+                                300        ; minimum (5 minutes)
+                                )
+                        NS      ns.yourdomain.
+                        NS      ns2.yourdomain.
+                        NS      ns3.yourdomain.
+			A	ns.yourdomain.
+
+The rest will be taken care of by the dnsblmanager or the addentry,
+delentry utilities.

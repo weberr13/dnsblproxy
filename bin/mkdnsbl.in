@@ -1,0 +1,73 @@
+#!PERL_PATH
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+
+if ( $#ARGV > 0 ) {
+
+	print "usage mkaccess\n";
+
+}
+
+$PREFIX = "INSTALL_PREFIX";
+$DBFILE = join("/",$PREFIX,"lib/accessdbm.db");
+
+#$accessdb = tie(%accessdb, 'DB_File', $DBFILE, O_CREAT|O_RDWR, 0664) or die "Can't Open db $DBFILE: $!\n";
+#$fd = $accessdb->fd;
+#open(DB_FH, "+<&=$fd") or die "dup $!";
+#
+#unless (flock (DB_FH, LOCK_SH | LOCK_NB )) {
+#        print "$$: CONTENTION; Can't read during write update!
+#                Waiting for write lock ($!) ....";
+#        unless (flock (DB_FH, LOCK_SH)) { die "flock: $!" }
+#}
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die;
+
+$DBFILE_BAK = "/tmp/accessdbm.db.mkdnsbl.$$";
+`cp $DBFILE $DBFILE_BAK`;
+
+undef $accessdb;
+untie %accessdb;
+
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE_BAK, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die;
+
+while ( ($key,$val) = each %accessdb ) {
+                @fields = split(/\./,$key);
+                if (! defined $fields[2] && $val =~ /OK/ ) {
+                        $bclass=join(".",$fields[0],$fields[1]);
+                        $bclasses{$bclass} = "whitelist";
+                } elsif (! defined $fields[3] && $val =~ /OK/ ) {
+                       $cclass=join(".",$fields[0],$fields[1],$fields[2]);
+                       $cclasses{$cclass} = "whitelist";
+                } else {
+                }
+}
+
+
+while ( ($key,$val) = each %accessdb ) {
+	$_ = $val;
+	if ( ! /^OK/ ) {
+	@fields = split(/\./,$key);
+	if (! defined $fields[2] ) {
+		for (0..255) {
+                        $address = join(".","*",$_,$fields[1],$fields[0]);
+			print "$address	IN	A	127.0.0.2\n";
+			print "$address	IN	TXT	\"$val mail trouble\@mailbounce.colorado.edu to be removed\"\n";
+		}
+	} elsif (! defined $fields[3] && ! defined $bclasses{join(".",$fields[0],$fields[1])} ) {
+                $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+		print "$address	IN	A	127.0.0.2\n";
+		print "$address	IN	TXT	\"$val  mail trouble\@mailbounce.colorado.edu to be removed\"\n";
+	} elsif ( ! defined $bclasses{join(".",$fields[0],$fields[1])} && ! defined $cclasses{join(".",$fields[0],$fields[1],$fields[2])} ) {
+		$address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+		print "$address	IN	A	127.0.0.2\n";
+		print "$address	IN	TXT	\"$val  mail trouble\@mailbounce.colorado.edu to be removed\"\n";
+	}
+	}
+}
+undef $accessdb;
+untie %accessdb;
+
+`rm $DBFILE_BAK`;
+`rm $DBFILE_BAK.lock`;

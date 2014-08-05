@@ -1,0 +1,9 @@
+#!/usr/local/bin/perl
+
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+print "loaded correctly\n";
+
+exit 0;

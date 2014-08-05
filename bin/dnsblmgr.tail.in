@@ -1,0 +1,4 @@
+#!/bin/sh
+
+
+tail -f SYSLOG_MAILLOG | INSTALL_PREFIX/bin/dnsblmanager -l 50 -s 25

@@ -1,0 +1,12 @@
+#!/bin/sh
+date=`/usr/bin/date +%m-%d-%Y`
+
+if [ $# -lt 1 ] ; then
+	list=spam.list
+else
+	list=$1
+fi
+INSTALL_PREFIX/bin/checkentry -f spam.list > spam.list.clean
+INSTALL_PREFIX/bin/checkallbl spam.list.clean > spam.list.bl
+INSTALL_PREFIX/bin/addentry -F -f spam.list.bl "Spam source $date"
+wc -l spam.list spam.list.clean spam.list.bl

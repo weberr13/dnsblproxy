@@ -1,0 +1,67 @@
+Once you install, you need to do a few things:
+
+1) configure sendmail(see the README in the sendmail dir)
+2) configure syslog(just make sure you log mail.info somewhere and you are
+set)
+3) configure bind(see README.bind)
+4) configure the runallupdates script or the dnsblmanager
+
+The first 3 are covered elsewhere, but as for the last I will touch on it
+here.
+
+If you choose the runalldnsbl route you will need a user(not necessarily
+root) who has write access to the PREFIX/lib dir and files withing(group
+access is best on our site).  That user needs to run the following utils
+from cron:
+
+0 * * * * PREFIX/bin/runallupdates 
+0 4 * * 6 PREFIX/bin/cleanbl
+
+Timeing is up to you, the more you run "runallupdates" the faster you can
+respond to attacks, but if you run it too often you will thrash.  Cleanbl
+deletes the bl entries that are no longer on your list of publicbls.  
+
+If you want faster reaction(don't we all) then you should also run the
+dnsblmanager.  This reads a pipe and upates much quicker.  It likes to
+lose the pipe, so at the moment it needs to be restarted few hours.  Here
+is how you can do it(assuming you have pkill on your system, if not figure
+a way around)
+
+
+* * * * * PREFIX/keeprunning PREFIX/bin/dnsblmgr.tail 
+10 4,6,8,10,12,14,16,18,20,22,0 * * * /usr/bin/pkill -f "tail -f SYSLOGFILE"
+
+If all goes well you should start to see your dnsbl poplulate quickly.  You
+can monitor with the accessstats command which generates stats for the
+c-class ranges and total.
+
+With that in mind, when you see a bad c-class there are ways to augment the
+dnsblproxy to make things much more efficent(but you risk some false
+postivies if you are not on top of things).  Once you have a bad c-class in
+mind surf onto a site like senderbase.org and search on the /24.  From
+there you should be able to figure out if you want to block all of it, and
+possibly the network it lives on.  To do this use the listbl util that
+accepts a CIDR range and a comment.  it will creat blocks.comment files
+which can be edited by hand.  once you are happy with your blocks.comment
+files run readblocks and they will be all put in the dnsbl.  To make things
+even more fun, there are scripts readhamlist and readspamlist avalable.
+The ham list will auto whitelist any of the hosts in a file of the format
+
+w ipaddress comment
+
+called ham.list.
+
+(yes the letter w) that are not on any of the bl's currently being checked
+by the dnsblproxy.  the readspamlist will block the hosts in a file
+called spam.list(same format, with a "b") if they get hits.  This can allow
+you to read in a list from senderbase or elsewhere and proactively
+block/whitelist without waiting.  Why whitelist?  the addentry utililty
+used by readblocks and runallupdates will not block a c-class if there is a
+single host whitelisted on it.  this can allow you to read in the few good
+mail hosts on a /16 in CN, block all of the C-class ranges within, without
+blocking the hosts you want.  Also, the way the m4 files are setup when a
+host is whitelisted it will trump the wildcard record used to block
+c-classes allowing you to block all but one(or more) hosts in a block
+without extra effort.
+
+

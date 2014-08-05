@@ -1,0 +1,39 @@
+#!PERL_PATH
+use DB_File;
+use Fcntl ':flock';
+use Socket;
+
+if ( $#ARGV < 0 ) {
+	print STDERR "usage checkallbl [-v] file\n";
+
+}
+
+if ( $ARGV[0] =~ /-v/ ) {
+	$verbose = 1;
+	shift;
+}
+@lists=("combined.njabl.org","bl.spamcop.net","sbl-xbl.spamhaus.org","dnsbl.sorbs.net","list.dsbl.org","l2.spews.dnsbl.sorbs.net");
+
+tie(@infile,'DB_File',$ARGV[0],O_RDWR, 0644,$DB_RECNO) or die "cannot open file\n";
+foreach $rec (@infile) {
+        @rec = split(" ",$rec);
+        $host = $rec[1];
+	@fields = split(/\./,$host);
+	foreach $list (@lists) {
+	 if ( !defined $blocked{$host} ) {
+	  $address= join(".",$fields[3],$fields[2],$fields[1],$fields[0],$list);
+	  if ( gethostbyname($address) ) {
+	   if ( defined $verbose ) {print STDERR "$host blocked on $list\n";}
+	   $blocked{$host} = 1;
+	   $hit=$list;
+	  }
+	 }
+	}
+	if ( defined $blocked{$host} ) {
+		print "@rec $hit\n";
+	} else {
+#		print "no match for $host\n";
+	}
+}
+untie(@infile);
+

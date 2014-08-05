@@ -1,0 +1,48 @@
+
+You will need to copy the m4 files from here to your cf/hacks dir inside
+your sendmail build tree.  Include the following in your cf.mc file and
+rebuild:
+
+HACK(syslog, `-LINFO')dnl
+HACK(require_rdns-log)
+HACK(block_bad_helo)
+FEATURE(enhdnsbl, `DNSBL_DOMAIN_NAME', `"550 Mail from block-listed site "$&{client_addr} " refused, contact CONTACT_ADDRESS_HERE"', `t', `127.0.0.2.')
+
+the DNSBL_DOMAIN_NAME and CONTACT_ADDRESS_HERE should be set to the name of
+your own dnsbl zone you have setup, and the contact address that is on an
+unflitered machine for complaint contacts.
+
+keep in mind that you will need a server that doesn't have the following
+rules listed(at least for now) so that your contact address will work.
+I am working on a modified enhdnsbl m4 that will be in the recpto area of
+the cf file, allowing an exception for the CONTACT_ADDRESS_HERE user and
+since it will be after the block_bad_helo the auto whitelisting fuctions of
+the dnsblmanager will work properly as well.  Till that time you can hack 
+your cf file by hand(experts only please, not everyone should start editing
+sendmail.cf's):
+
+1) find the dnsbl lines in the check_relay area of the sendmail.cf and
+comment them out, they should look like this:
+
+# DNS based IP address spam list DNSBL_DOMAIN_NAME
+R$*	$: $&{client_addr}
+R$-.$-.$-.$-	$: <?> $(ednsbl $4.$3.$2.$1.DNSBL_DOMAIN_NAME. $: OK $) R<?>OK  $: OKSOFAR
+R<?>$+<TMP>	$#error $@ 4.7.1 $: "451 Temporary lookup failure of " $&{client_addr} " at DNSBL_DOMAIN_NAME"
+R<?>127.0.0.2.	$#error $@ 5.7.1 $: "550 Mail from block-listed site " $&{client_addr} " refused, contact CONTACT_ADDRESS_HERE"
+
+2) drop down to the SLocal_check_rcpt area, and after the HELO logger lines
+add the following(watch the tabs, please):
+
+R$*	$: $&{client_addr}
+R$*	$: $>A < $1 > <?> <+ Connect> <>
+R<$={Accept}> $*	$@ $1		return value of lookup
+R$*	$: $&{client_name}
+R$*	$: $>D < $1 > <?> <+ Connect> <>
+R<$={Accept}> $*	$@ $1		return value of lookup
+R$*	$: $&{rcpt_addr}
+RCONTACT_ADDRESS_HERE	$@OK
+R$*	$: $&{client_addr}
+R$-.$-.$-.$-	$: <?> $(ednsbl $4.$3.$2.$1.DNSBL_DOMAIN_NAME. $: OK $)$ R<?>OK	$: OKSOFAR
+R<?>$+<TMP>	$#error $@ 4.7.1 $: "451 Temporary lookup failure of "$&{client_addr} " at DNSBL_DOMAIN_NAME"
+R<?>127.0.0.2.	$#error $@ 5.7.1 $: "550 Mail from block-listed site "$&{client_addr} " refused, contact CONTACT_ADDRESS_HERE"
+

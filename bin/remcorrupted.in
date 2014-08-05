@@ -1,0 +1,7 @@
+#!/bin/sh
+
+mgr=INSTALL_PREFIX
+
+/usr/bin/nawk ' ! $2 {print "1 "$1}' $1 > /tmp/remcorrupted.$$
+$mgr/bin/delentry -f /tmp/remcorrupted.$$
+rm /tmp/remcorrupted.$$

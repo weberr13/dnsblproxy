@@ -1,0 +1,174 @@
+divert(-1)
+
+dnl ##	NOTE:	This M4 file is suitable for sendmail
+dnl ##	8.12.x .  To use it with 8.10.x or 8.11.x, a one line
+dnl ##	change is required.  Comments indicate which lines
+dnl ##	to change (to comment or uncomment)
+
+dnl ################################################################
+dnl ## This is a modified version of require_rdns used to log hosts
+dnl ##  that violate rdns, but not block outright(to many false pos) 
+dnl ##  for use with dnsblproxy
+dnl ## 
+dnl ## original
+dnl ## VERSIONID(`$Id: require_rdns.m4,v 1.7 2003/06/13 03:59:16 rickert Exp $')
+dnl ## 
+dnl ## mod by Robert.Weber@Colorado.edu Wed May  4 10:23:47 MDT 2005
+dnl ##################original comments below#######################
+dnl ##
+dnl ##		This is a HACK to reject mail from connecting clients
+dnl ##		without proper rDNS (reverse DNS), functional
+dnl ##		gethostbyaddr() resolution.
+dnl ##
+dnl ##		Use as:
+dnl ##
+dnl ##			HACK(require_rdns)
+dnl ##
+dnl ##		An optional second argument is available, and must be
+dnl ##		either `OK' or `REJECT'.  With the second argument,
+dnl ##		the decision to reject depends on the recipient, and
+dnl ##		is based on access table entries for that recipient.
+dnl ##		The second argument gives the default assumed for
+dnl ##		recipients without access table entries.  Currently,
+dnl ##		only the first letter of the second argument is
+dnl ##		checked.
+dnl ##
+dnl ##		Note that the second argument makes no sense unless
+dnl ##		FEATURE(`delay_checks') is also in effect.  It is
+dnl ##		best for the `delay_check' line to come first.  This
+dnl ##		is not strictly required, but will avoid a warning
+dnl ##		message.
+dnl ##
+dnl ##		The basis policy is to reject message with a 5xx
+dnl ##		error if the IP address fails to resolve.  However,
+dnl ##		if this is a temporary failure, a 4xx temporary
+dnl ##		failure is returned.  If the look succeeds, but
+dnl ##		returns an apparently forged value, this is treated
+dnl ##		as a temporary failure with a 4xx error code.
+dnl ##
+dnl ##		EXCEPTIONS:
+dnl ##
+dnl ##		Exceptions based on access entries are discussed
+dnl ##		below.  Any IP address matched using $=R (the
+dnl ##		"relay-domains" file) is excepted from the rules.
+dnl ##		Since we have explicitely allowed relaying for this
+dnl ##		host, based on IP address, we ignore the rDNS
+dnl ##		failure.
+dnl ##
+dnl ##		The philosophical assumption here is that most users
+dnl ##		do not control their rDNS.  They should be able to
+dnl ##		send mail through their ISP, whether or not they have
+dnl ##		valid rDNS.  The class $=R, roughly speaking,
+dnl ##		contains those IP addresses and address ranges for
+dnl ##		which we are the ISP, or are acting as if the ISP.
+dnl ##
+dnl ##		If `delay_checks' is in effect (recommended), then
+dnl ##		any sender who has authenticated is also excepted
+dnl ##		from the restrictions.  This happens because the
+dnl ##		rules produced by this HACK() will not be applied to
+dnl ##		authenticated senders (assuming `delay_checks').
+dnl ##
+dnl ##			ACCESS MAP ENTRIES:
+dnl ##
+dnl ##		Per-user entries:
+dnl ##
+dnl ##		The per-user entries are of the form
+dnl ##			rdns:user	OK
+dnl ##		where the RHS should be `OK' or `REJECT'.  If `OK' is
+dnl ##		used, mail addressed to this user is not blocked on
+dnl ##		rDNS problems.  If the value is `REJECT', it is
+dnl ##		checked.  The second argument to the HACK() enables
+dnl ##		this feature, and provides the default for users with
+dnl ##		no entry.
+dnl ##
+dnl ##		Note that the user in "rdns:user" is the user part in
+dnl ##		the mailer triple after address parsing.  For a
+dnl ##		virtual address, this will be the user after
+dnl ##		virtusertable processing.  If the mail is addressed
+dnl ##		to "user+detail" the "+detail" is stripped before
+dnl ##		this checking.
+dnl ##
+dnl ##		If the recipient is on another host, then the key
+
+dnl ##		actually looked up is "rdns:@host." with the "host"
+dnl ##		being the destination to which we will send it.  In
+dnl ##		some cases, this might come from a mailertable
+dnl ##		entry.  It is not possible to individuate the
+dnl ##		decision for remote recipients.  Note that the "."
+dnl ##		might be needed after the hostname.  It is best to
+dnl ##		use the output of
+dnl ##			echo "/parse address" | sendmail -bt
+dnl ##		to decide what goes in the access map.
+dnl ##
+dnl ##		IP address entries:
+dnl ##
+dnl ##		Entries such as
+dnl ##			rdns:1.2.3	OK
+dnl ##			1.2.3.4		OK
+dnl ##			1.2		RELAY
+dnl ##		will whitelist IP address 1.2.3.4, so that the rDNS
+dnl ##		blocking does apply to that IP address
+dnl ##
+dnl ##		Entries such as
+dnl ##			rdns:1.2.3	REJECT
+dnl ##			1.2.3.4		REJECT
+dnl ##		will have the effect of forcing a temporary failure
+dnl ##		for that address to be treated as a permanent
+dnl ##		failure.
+dnl ##
+dnl ################################################################
+
+divert(0)dnl
+dnlVERSIONID(`$Id: require_rdns.m4,v 1.7 2003/06/13 03:59:16 rickert Exp $')
+VERSIONID(`$Id: require_rdns-log.m4,v 1.0 2005/05/04 10:23:47 weberr Exp $')
+divert(-1)
+
+define(`_REQUIRE_RDNS_',
+ifelse(defn(`_ARG_'), `', `',
+	lower(substr(_ARG_,0,1)), `o', `OK',
+	lower(substr(_ARG_,0,1)), `r', `REJECT',
+	`errprint(`*** Bad argument _ARG_ for require_rdns')'))
+
+ifelse(_REQUIRE_RDNS_,`',`',
+ifdef(`_DELAY_CHECKS_',`',
+``errprint(`*** Warning: Optional argument to require_rdns needs delay_checks
+')''
+))
+
+PUSHDIVERT(9)dnl
+SLocal_check_relay
+ifelse(_REQUIRE_RDNS_,`',dnl
+R$* $| $*		$:$2 <?> <$&{client_resolve}>
+,dnl
+R$* $| $*		$:$2 <?> <$&{client_resolve}> $&{rcpt_addr}
+)dnl
+R$*<?><OK>$*		$@OK			Resolves.
+R$=R $* <?><$*>$*	$@RELAY			We relay for these
+ifelse(_REQUIRE_RDNS_,`',`',dnl
+R$*<?><$*>$+@$+		$:$1<?><$2>@$&{rcpt_host}	use @host for remote
+R$*<?><$*>$+ + $*	$:$1<?><$2>$3		remove +detail
+R$*<?><$*>$+		`$:$1<?><$2>$(access rdns:$3 $:' _REQUIRE_RDNS_ `$)'	Check rcpt
+)dnl
+ifelse(_REQUIRE_RDNS_, `REJECT',dnl
+`R$*<?><$*>$={Accept}	$@ $3			Bypass for this recipient
+', _REQUIRE_RDNS_, `OK',dnl
+`R$*<?><$*>REJECT	$:$1<?><$2>		mark rejections
+R$*<?><$*>$+		$@OK			bypass for others
+',`')dnl
+dnl	### The next line is sendmail version dependent
+dnl	### Use this (with LookUpAddress)for sendmail-8.10 and 8.11
+dnl`'R$+<?><$*>$*		$:$1 $>LookUpAddress <$1> <?> <$2> <+ rdns>
+dnl	### but use to following, instead, for 8.12
+R$+<?><$*>$*		$:$1 $>A <$1> <?> <+ rdns> <$2>
+dnl	### end of version dependent text
+R$*<$={Accept}><$+>	$@ $2			OK or RELAY - whitelisted
+R$*<REJECT><$*>		$: $1<?><FAIL>		REJECT - treat tempfail as fail
+R$*<?><FAIL>		$: $(logger RDNS Fix reverse DNS for $1 $)
+R$*<?><TEMP>		$: $(logger RDNS Client IP address $1 does not resolve $)
+R$*<?><FORGED>		$: $(logger RDNS Possibly forged hostname for $1 $)
+R$*			$@OK
+dnl R$*<?><FAIL>		$#error $@ 5.7.1 $: 550 Fix reverse DNS for $1, or use your ISP server
+dnl R$*<?><TEMP>		$#error $@ 4.1.8 $: 451 Client IP address $1 does not resolve
+dnl R$*<?><FORGED>		$#error $@ 4.1.8 $: 451 Possibly forged hostname for $1
+POPDIVERT
+undefine(`_REQUIRE_RDNS_')dnl

@@ -1,0 +1,7 @@
+#!/bin/sh
+
+if [ "$1" = "-s" ] ; then
+tail -100000 SYSLOG_MAILLOG | grep "HELO\." | nawk -FHELO. '{print $2}' |  /usr/local/gnu/bin/grep -E ".*[0-9]{1,3}\.[0-9]{1,3}\..*---|.*[0-9]{1,3}\-[0-9]{1,3}\-.*---|.*[0-9]{1,3}\_[0-9]{1,3}.*---|.*[0-9]{6}.*|.*\.adsl\..*" | grep -v mail | grep -v smtp | grep -v www | nawk -F.---. '{print $2}' | sort | uniq -c | sort -rn | awk '$1 > 1 {print $1" "$2" "(s+=$1)}' | grep -v "  "
+else
+grep "HELO\." SYSLOG_MAILLOG | nawk -FHELO. '{print $2}' |  /usr/local/gnu/bin/grep -E ".*[0-9]{1,3}\.[0-9]{1,3}\..*---|.*[0-9]{1,3}\-[0-9]{1,3}\-.*---|.*[0-9]{1,3}\_[0-9]{1,3}.*---|.*[0-9]{6}.*|.*\.adsl\..*" | grep -v mail | grep -v smtp | grep -v www | nawk -F.---. '{print $2}' | sort | uniq -c | sort -rn | awk '$1 > 1 {print $1" "$2" "(s+=$1)}' | grep -v "  "
+fi

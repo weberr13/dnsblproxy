@@ -1,0 +1,19 @@
+#!/bin/sh
+
+date=`date +%m-%d-%Y`
+INSTALL_PREFIX/bin/SAsources -s > /tmp/SAupdates.$$
+
+INSTALL_PREFIX/bin/checkentry -f /tmp/SAupdates.$$ > /tmp/SAupdates.$$.
+mv /tmp/SAupdates.$$. /tmp/SAupdates.$$
+
+if [ "$1" = "-p" ] ; then
+INSTALL_PREFIX/bin/proxyfile /tmp/SAupdates.$$ | awk '{print "1 "$1}' > /tmp/SAupdates.proxies.open.$$
+
+INSTALL_PREFIX/bin/addentry -F -f /tmp/SAupdates.proxies.open.$$ "Open proxy spam source $date"
+
+fi
+
+INSTALL_PREFIX/bin/checkallbl  /tmp/SAupdates.$$ > /tmp/SAupdates.bl.$$
+INSTALL_PREFIX/bin/addentry -F -f /tmp/SAupdates.bl.$$ "Spamassassin spam source $date"
+
+rm /tmp/SAupdates*.$$

@@ -1,0 +1,43 @@
+divert(-1)
+
+# helo/ehlo checks of $s
+dnl`'Rationale:
+dnl`'Client software is often broken.  We don't want to reject
+dnl`'our own users client connections.  Therefore we attempt
+dnl`'to allow our users to pass the checks.  Otherwise, block
+dnl`'sites with a HELO/EHLO hostname that is unqualified, or
+dnl`'is one of our own names
+dnl`'
+dnl`'Note that I had to at "127.0.0.1" to class $=R, so that
+dnl`'local client software would bypass these tests.  I also
+dnl`'added "[127.0.0.1]" to class $=w, so that the localhost
+dnl`'IP would count as one of our IPs.
+dnl`'
+dnl`' mod for logging helo information by Robert.Weber@Colorado.edu
+dnl`'
+RELAY_DOMAIN(`127.0.0.1')dnl
+LOCAL_DOMAIN(`[127.0.0.1]')dnl
+dnl`'Now the ruleset.
+LOCAL_RULESETS
+SLocal_check_rcpt
+
+R$*			$:$1 $| <$&{auth_authen}>	Get auth info
+dnl`'Bypass the test for users who have authenticated.
+R$* $| <$+>		$:$1				skip if auth
+R$* $| <$*>		$: $1 $| $>A <$&{client_addr}> <?> <+ Connect> <$1>
+R$* $| <RELAY> <$*>	$: $1	skip relay ips
+R$* $| <$*> <$*>	$:$1$|<$&{client_addr}>[$&s]	Get connection info
+dnl`'Bypass for local clients -- IP address starts with $=R
+R$* $| <$=R $*>[$*]	$:$1				skip if local client
+dnl`'Bypass a "sendmail -bs" session, which use 0 for client ip address
+R$* $| <0>[$*]		$:$1				skip if sendmail -bs
+dnl`'Reject our IP - assumes "[ip]" is in class $=w
+R$* $| <$*> $=w		$#error $@5.7.1 $:"552 contact CONTACT_ADDRESS_HERE bogus HELO name used: " $&s
+dnl`'Reject our hostname
+R$* $| <$*> [$=w]	$#error $@5.7.1 $:"552 contact CONTACT_ADDRESS_HERE bogus HELO name used: " $&s
+dnl`'Pass anything else with a "." in the domain parameter
+R$*		$: $(logger HELO $&s --- $&{client_addr} $)
+R$*		$: $1	everything else OK
+dnl`'Reject if there was no "." or only an initial or final "."
+
+dnl`'fall through to any other local rules.

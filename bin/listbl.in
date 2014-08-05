@@ -1,0 +1,20 @@
+#!/bin/sh
+
+if [ -f blocks.$2 ] ; then
+echo $1 | nawk -f INSTALL_PREFIX/bin/cclass.nawk | awk '{print "1 "$1}' >> blocks.$2
+else
+echo $1 | nawk -f INSTALL_PREFIX/bin/cclass.nawk | awk '{print "1 "$1}' > blocks.$2
+fi
+
+INSTALL_PREFIX/bin/checkentry -f blocks.$2 > blocks.$2.tmp
+mv blocks.$2.tmp blocks.$2
+lines=`wc -l blocks.$2 | awk '{print $1}'`
+
+
+if [ -f blocks.list ] ; then
+echo $2 >> blocks.list
+else
+echo $2 > blocks.list
+fi
+
+echo "$lines lines written to blocks.$2"

@@ -1,0 +1,32 @@
+#!/bin/sh
+PREFIX=$HOME/spamreport
+MAILTO=weberr
+clean() 
+{
+        echo cleaning up...
+	sort -t . -k 1,1n -k 2,2n -k 3,3n -k 4,4n /tmp/spamreport.proxies.$$ | uniq > $PREFIX/report/`date +%Y%m%d`.proxies
+	rm  /tmp/openproxies.$$
+	rm  /tmp/spamreport.proxies.$$
+	exit 1
+}
+touch /tmp/openproxies.$$
+touch /tmp/spamreport.proxies.$$
+trap clean 1
+trap clean 2
+trap clean 15
+
+if [ $# -lt 1 ] ; then 
+        echo usage $0 file
+        exit 1
+fi
+
+/usr/local/accesmgr/bin/proxyfile $1 > /tmp/openproxies.$$
+for host in `awk '{print $1}' /tmp/openproxies.$$` ; do
+		/usr/local/accesmgr/bin/dnsblproxyentry p $host >> /tmp/spamreport.proxies.$$
+done
+sort -t . -k 1,1n -k 2,2n -k 3,3n -k 4,4n /tmp/spamreport.proxies.$$ | uniq > $PREFIX/report/`date +%Y%m%d`.proxies
+
+wc -l $PREFIX/report/`date +%Y%m%d`.proxies | mailx $MAILTO
+
+rm  /tmp/openproxies.$$
+rm  /tmp/spamreport.proxies.$$

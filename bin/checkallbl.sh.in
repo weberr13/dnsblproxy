@@ -1,0 +1,67 @@
+#!/bin/sh
+
+trap clean 1
+trap clean 2
+trap clean 15
+clean()
+{
+        echo cleaning up
+	exit 1
+}
+
+if [ $#argv -lt 1 ] ; then 
+        echo usage $0 [-n #] file
+        exit 1
+fi
+while [ $#argv -gt 1 ] ; do
+        case $1 in
+                -n) threshold=$2
+                    shift
+                    shift
+                    ;;
+                *)  echo invalid argument $1
+                    exit 1
+                    ;;
+        esac
+done
+touch /tmp/checkallbl.$$
+for i in `awk '{print $2}' $1 ` ; do
+	checkdnsbl combined.njabl.org $i > /dev/null
+	if [  $? -eq 1 ] ; then 
+		echo $i >> /tmp/checkallbl.$$
+	else
+	 checkdnsbl bl.spamcop.net $i > /dev/null
+	 if [  $? -eq 1  ] ; then 
+		echo $i >> /tmp/checkallbl.$$
+	 else
+	  checkdnsbl sbl.spamhaus.org $i > /dev/null
+	  if [  $? -eq 1  ] ; then 
+		echo $i >> /tmp/checkallbl.$$
+	  else
+	   checkdnsbl dnsbl.sorbs.net $i > /dev/null
+	   if [  $? -eq 1  ] ; then 
+		echo $i >> /tmp/checkallbl.$$
+	   else
+	    checkdnsbl cbl.abuseat.org $i > /dev/null
+	    if [  $? -eq 1  ] ; then 
+		echo $i >> /tmp/checkallbl.$$
+	    else
+	     checkdnsbl opm.blitzed.org $i > /dev/null
+	     if [  $? -eq 1  ] ; then 
+		echo $i >> /tmp/checkallbl.$$
+	     else
+	      checkdnsbl list.dsbl.org $i > /dev/null
+	      if [  $? -ne 0 ] ; then 
+		echo $i >> /tmp/checkallbl.$$
+	      fi
+             fi
+	    fi
+           fi
+          fi
+         fi
+	fi
+	
+done	
+
+uniq -c /tmp/checkallbl.$$  | awk '{print $1" "$2}'
+rm /tmp/checkallbl.$$  

@@ -1,0 +1,49 @@
+#!PERL_PATH
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+print "batchadd start\n";
+if ( $#ARGV < 0 ) {
+	print "usage batchadd file\n";
+	exit(1);
+
+}
+
+	tie(@infile,'DB_File',$ARGV[0],O_RDWR, 0644,$DB_RECNO) or die "cannot open file\n";
+	$outcount = 0;
+	$incount = @infile;
+	shift;
+
+	
+
+
+$PREFIX = "INSTALL_PREFIX";
+$DBFILE = join("/",$PREFIX,"lib/accessdbm.db");
+
+#$accessdb = tie(%accessdb, 'DB_File', $DBFILE, O_CREAT|O_RDWR, 0664) or die "Can't Open db $DBFILE: $!\n";
+#$fd = $accessdb->fd;
+#open(DB_FH, "+<&=$fd") or die "dup $!";
+#
+#unless (flock (DB_FH, LOCK_EX | LOCK_NB )) {
+#	print "$$: CONTENTION; must have exclusive lock update!
+#                Waiting for write lock ($!) ....";
+#	unless (flock (DB_FH, LOCK_EX)) { die "flock: $!" }
+#}
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die "can't get a lock\n";
+
+	foreach $rec (@infile) {
+	  @rec = split(" ",$rec);
+	  $host = shift @rec;
+          $value = join(" ",@rec);
+	        $accessdb{$host} = $value;
+		$outcount++;
+		if ( $accessdb{$host} != $value ) {
+			die "Database is corrupt!!!\n";
+		}
+        }
+	print "Added $outcount/$incount entries to access\n";
+	untie %accessdb;
+	undef $accessdb;
+	untie @infile;
+	print "batchadd stop\n";

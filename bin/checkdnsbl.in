@@ -1,0 +1,15 @@
+#!PERL_PATH
+use DB_File;
+use Fcntl ':flock';
+use Socket;
+
+if ( $#ARGV < 1 ) {
+	print "usage checkdnsbl dnsbl ip\n";
+}
+
+
+	@fields = split(/\./,$ARGV[1]);
+	$address = join(".",$fields[3],$fields[2],$fields[1],$fields[0],$ARGV[0]);
+	@address = gethostbyname($address) or exit(0);
+	print "$ARGV[1] blocked on $ARGV[0] sender\n";
+	exit(1);

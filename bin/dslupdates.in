@@ -1,0 +1,19 @@
+#!/bin/sh
+
+date=`date +%m-%d-%Y`
+INSTALL_PREFIX/bin/dslheloers -s > /tmp/dslupdates.dsl.$$
+
+INSTALL_PREFIX/bin/checkentry -f /tmp/dslupdates.dsl.$$ > /tmp/dslupdates.dsl.$$.
+mv /tmp/dslupdates.dsl.$$. /tmp/dslupdates.dsl.$$
+
+if [ "$1" = "-p" ] ; then
+INSTALL_PREFIX/bin/proxyfile /tmp/dslupdates.dsl.$$ | awk '{print "1 "$1}' > /tmp/dslupdates.proxies.open.$$
+
+INSTALL_PREFIX/bin/addentry -F -f /tmp/dslupdates.proxies.open.$$ "Open proxy spam source $date"
+
+fi
+
+INSTALL_PREFIX/bin/checkallbl  /tmp/dslupdates.dsl.$$ > /tmp/dslupdates.dsl.bl.$$
+INSTALL_PREFIX/bin/addentry -F -f /tmp/dslupdates.dsl.bl.$$ "DSL spam source $date"
+
+rm /tmp/dslupdates.*.$$

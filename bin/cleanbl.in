@@ -1,0 +1,37 @@
+#!/bin/sh
+
+ACCESSMGR=INSTALL_PREFIX
+
+if [ "$1" = "-w" ] ; then
+
+	$ACCESSMGR/bin/dumpdb | grep "OK AUTO" | awk '{print (s+=1)" "$1}' > /tmp/cleanbl.w.$$
+	$ACCESSMGR/bin/checkallbl /tmp/cleanbl.w.$$ | awk '{print $1" "$2}' > /tmp/cleanbl.bl.w.$$
+	$ACCESSMGR/bin/delentry -f /tmp/cleanbl.bl.w.$$
+	rm /tmp/cleanbl.bl.w.$$  /tmp/cleanbl.w.$$
+elif [ "$1" = "-b" ] ; then
+
+$ACCESSMGR/bin/mkaccess | grep 575 | awk '{print (s+=1)" "$1}' > /tmp/cleanbl.$$
+
+$ACCESSMGR/bin/checkallbl /tmp/cleanbl.$$ | awk '{print $1" "$2}' > /tmp/cleanbl.bl.$$
+
+diff /tmp/cleanbl.$$ /tmp/cleanbl.bl.$$ | grep "<" | awk '{print $2" "$3}' > /tmp/cleanbl.rm.$$
+
+$ACCESSMGR/bin/delentry -f /tmp/cleanbl.rm.$$
+ 
+rm /tmp/cleanbl.$$ /tmp/cleanbl.bl.$$ /tmp/cleanbl.rm.$$ 
+
+else 
+
+$ACCESSMGR/bin/mkaccess | grep 575 | awk '{print (s+=1)" "$1}' > /tmp/cleanbl.$$
+$ACCESSMGR/bin/dumpdb | grep "OK AUTO" | awk '{print (s+=1)" "$1}' > /tmp/cleanbl.w.$$
+
+$ACCESSMGR/bin/checkallbl /tmp/cleanbl.$$ | awk '{print $1" "$2}' > /tmp/cleanbl.bl.$$
+$ACCESSMGR/bin/checkallbl /tmp/cleanbl.w.$$ | awk '{print $1" "$2}' > /tmp/cleanbl.bl.w.$$
+
+diff /tmp/cleanbl.$$ /tmp/cleanbl.bl.$$ | grep "<" | awk '{print $2" "$3}' > /tmp/cleanbl.rm.$$
+
+$ACCESSMGR/bin/delentry -f /tmp/cleanbl.rm.$$
+$ACCESSMGR/bin/delentry -f /tmp/cleanbl.bl.w.$$
+ 
+rm /tmp/cleanbl.$$ /tmp/cleanbl.bl.$$ /tmp/cleanbl.rm.$$ /tmp/cleanbl.bl.w.$$  /tmp/cleanbl.w.$$
+fi

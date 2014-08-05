@@ -1,0 +1,162 @@
+#!PERL_PATH
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+
+if ( $#ARGV < 0 ) {
+
+	print "usage delentry [-f file]|[host]\n";
+	exit(1);
+
+
+}
+while ( $#ARGV > 0 ) {
+	if ( $ARGV[0] =~ /-f/ ) {
+        tie(@infile,'DB_File',$ARGV[1],O_RDWR, 0644,$DB_RECNO) or die "cannot open file\n";
+        $outcount = 0;
+        $incount = @infile;
+        shift;
+} else {
+        print "invalid arg $ARGV[0]\n";
+        exit(1);
+}
+}
+
+$NSUPDATE = "/usr/local/bind/bin/nsupdate";
+$MAXCOUNT =500;
+$COUNT=0;
+$TEMPDIR = "/tmp/delentry.dynamic";
+$DOMAIN = "bl.colorado.edu.";
+
+sub runnsupdate {
+		foreach $file ( @_ ) {
+                 do {
+                  $exit = system "$NSUPDATE < $file 2>&1 | grep Communication";
+                 } while ( $exit == 0 );
+		}
+}
+
+
+if ( ! -d $TEMPDIR ) {
+                system "rm -rf $TEMPDIR";
+                mkdir("$TEMPDIR",0777);
+		system "chgrp access $TEMPDIR";
+		system "chmode 2770 $TEMPDIR";
+}
+chdir($TEMPDIR);
+unlink(whitelist.$$);
+unlink(blacklist.$$);
+open(WL_FILE, ">whitelist.$$");
+open(BL_FILE, ">blacklist.$$");
+printf BL_FILE "server bl.colorado.edu.\n";
+printf WL_FILE "server bl.colorado.edu.\n";
+printf BL_FILE "zone bl.colorado.edu.\n";
+printf WL_FILE "zone bl.colorado.edu.\n";
+
+
+$PREFIX = "INSTALL_PREFIX";
+$DBFILE = join("/",$PREFIX,"lib/accessdbm.db");
+
+#$accessdb = tie(%accessdb, 'DB_File', $DBFILE, O_CREAT|O_RDWR, 0664) or die "Can't Open db $DBFILE: $!\n";
+#$fd = $accessdb->fd;
+#open(DB_FH, "+<&=$fd") or die "dup $!";
+#unless (flock (DB_FH, LOCK_EX | LOCK_NB )) {
+#        print "$$: CONTENTION; must have exclusive lock update!
+#                Waiting for write lock ($!) ....";
+#        unless (flock (DB_FH, LOCK_EX)) { die "flock: $!" }
+#}
+
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die;
+
+if ( defined @infile ) {
+        foreach $rec (@infile) {
+          @rec = split(" ",$rec);
+          $host = $rec[1];
+          if ($host =~ /(^([\d]{1,3}\.){2,3}([\d]{1,3}))/ ) {
+           $key = $1;
+          } else {
+           warn "Bad key";
+          }
+	  if ( defined $accessdb{$key} ) {
+	   delete $accessdb{$key};
+               @fields = split(/\./,$key);
+               if ( ! defined $fields[3] ) {
+                  $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+               } else {
+                  $address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+               }
+               $_ = $val;
+#                        printf BL_FILE "\nprereq yxrrset %s.%s    IN      A \n",$address,$DOMAIN;
+                        printf BL_FILE "update delete %s.%s     IN      A \n",$address,$DOMAIN;
+##                        printf BL_FILE "\nprereq yxrrset %s.%s    IN      TXT \n",$address,$DOMAIN;
+#                        printf BL_FILE "update delete %s.%s     IN      TXT \n",$address,$DOMAIN;
+                        $COUNT+=2;
+                if ( $COUNT > $MAXCOUNT ) {
+                printf BL_FILE "send\n";
+                printf WL_FILE "send\n";
+		runnsupdate("blacklist.$$","whitelist.$$");
+
+                close(WL_FILE);
+                close(BL_FILE);
+                open(WL_FILE, ">whitelist.$$");
+                open(BL_FILE, ">blacklist.$$");
+                printf BL_FILE "server bl.colorado.edu.\n";
+                printf WL_FILE "server bl.colorado.edu.\n";
+                printf BL_FILE "zone bl.colorado.edu.\n";
+                printf WL_FILE "zone bl.colorado.edu.\n";
+                $COUNT=0;
+                } else { $COUNT+=2;}
+
+
+	
+	   $outcount++;
+	  }  else {
+	   warn "$key Not found";
+	  }
+        }
+	print "$outcount/$incount removed\n";
+} else {
+if ( defined $accessdb{$ARGV[0]} ) {
+	delete $accessdb{$ARGV[0]};
+               @fields = split(/\./,$ARGV[0]);
+               if ( ! defined $fields[3] ) {
+                  $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+               } else {
+                  $address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+		}
+               $_ = $val;
+#                        printf BL_FILE "\nprereq yxrrset %s.%s    IN      A \n",$address,$DOMAIN;
+                        printf BL_FILE "update delete %s.%s     IN      A \n",$address,$DOMAIN;
+#                        printf BL_FILE "\nprereq yxrrset %s.%s    IN      TXT \n",$address,$DOMAIN;
+#                        printf BL_FILE "update delete %s.%s     IN      TXT \n",$address,$DOMAIN;
+                        $COUNT+=2;
+                if ( $COUNT > $MAXCOUNT ) {
+                printf BL_FILE "send\n";
+                printf WL_FILE "send\n";
+		runnsupdate("blacklist.$$","whitelist.$$");
+                close(WL_FILE);
+                close(BL_FILE);
+                open(WL_FILE, ">whitelist.$$");
+                open(BL_FILE, ">blacklist.$$");
+                printf BL_FILE "server bl.colorado.edu.\n";
+                printf WL_FILE "server bl.colorado.edu.\n";
+                printf BL_FILE "zone bl.colorado.edu.\n";
+                printf WL_FILE "zone bl.colorado.edu.\n";
+                $COUNT=0;
+                } else { $COUNT+=2;}
+}  else {
+	die "No key found";
+}
+}
+undef $accessdb;
+untie %accessdb;
+printf BL_FILE "send\n";
+printf WL_FILE "send\n";
+
+runnsupdate("blacklist.$$","whitelist.$$");
+
+close(WL_FILE);
+close(BL_FILE);
+unlink("whitelist.$$");
+unlink("blacklist.$$");

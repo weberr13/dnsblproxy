@@ -1,0 +1,19 @@
+#!/bin/sh
+
+date=`date +%m-%d-%Y`
+INSTALL_PREFIX/bin//rdnsfailures -s > /tmp/rdnsupdates.rdns.$$
+
+INSTALL_PREFIX/bin/checkentry -f /tmp/rdnsupdates.rdns.$$ > /tmp/rdnsupdates.rdns.$$.
+mv /tmp/rdnsupdates.rdns.$$. /tmp/rdnsupdates.rdns.$$
+
+if [ "$1" = "-p" ] ; then
+INSTALL_PREFIX/bin/proxyfile /tmp/rdnsupdates.rdns.$$ | awk '{print "1 "$1}' > /tmp/rdnsupdates.proxies.open.$$
+
+INSTALL_PREFIX/bin/addentry -F -f /tmp/rdnsupdates.proxies.open.$$ "Open proxy spam source $date"
+
+fi
+
+INSTALL_PREFIX/bin/checkallbl  /tmp/rdnsupdates.rdns.$$ > /tmp/rdnsupdates.rdns.bl.$$
+INSTALL_PREFIX/bin/addentry -F -f /tmp/rdnsupdates.rdns.bl.$$ "Bad RDNS spam source $date"
+
+rm /tmp/rdnsupdates.*.$$

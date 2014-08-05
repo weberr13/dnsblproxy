@@ -1,0 +1,75 @@
+#!PERL_PATH
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+if ( $#ARGV > 1 ) {
+
+	print "usage mkaccess [-w]\n";
+
+}
+
+$PREFIX = "INSTALL_PREFIX";
+$DBFILE = join("/",$PREFIX,"lib/accessdbm.db");
+#$accessdb = tie(%accessdb, 'DB_File', $DBFILE, O_CREAT|O_RDWR, 0664) or die "Can't Open db $DBFILE: $!\n";
+#$fd = $accessdb->fd;
+#open(DB_FH, "+<&=$fd") or die "dup $!";
+#
+#unless (flock (DB_FH, LOCK_SH | LOCK_NB )) {
+#        print "$$: CONTENTION; Can't read during write update!
+#                Waiting for write lock ($!) ....";
+#        unless (flock (DB_FH, LOCK_SH)) { die "flock: $!" }
+#}
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die;
+
+
+while ( ($key,$val) = each %accessdb ) {
+                @fields = split(/\./,$key);
+                if (! defined $fields[2] ) {
+                        $bclass=join(".",$fields[0],$fields[1]);
+                        $bclasses{$bclass} = "blocked";
+                } elsif (! defined $fields[3] ) {
+                       $cclass=join(".",$fields[0],$fields[1],$fields[2]);
+                       $cclasses{$cclass} = "blocked";
+                } else {
+                }
+}
+
+while ( ($key,$val) = each %accessdb ) {
+        @fields = split(/\./,$key);
+	if ( $val =~ /^OK/ ) {
+		print "$key	OK\n";
+		print "# $key $accessdb{$key}\n";
+	} elsif ( $ARGV[0] != "-w" || !defined($ARGV[0]) ) {
+	if ( ! defined $fields[2] ) {
+		if ( $val =~ /^(5[\d]{2})/ ) {
+		 	print "$key	$val\n";
+		} else {
+			print "$key	573 $key $val\n";
+		}
+	} elsif ( !defined $fields[3] ) { 
+        	$bclass=join(".",$fields[0],$fields[1]);
+		if ( !defined $bclasses{$bclass} ) {
+			if ( $val =~ /^(5[\d]{2})/ ) {
+				print "$key	$val\n";
+			} else {
+				print "$key	573 $key $val\n";
+			}
+		}
+	} else {
+        	$cclass=join(".",$fields[0],$fields[1],$fields[2]);
+        	$bclass=join(".",$fields[0],$fields[1]);
+		if ( !defined $cclasses{$cclass} && !defined $bclasses{$bclass} ) {
+			if ( $val =~ /^(5[\d]{2})/ ) {
+				print "$key	$val\n";
+			} else {
+				print "$key	575 $key $val\n";
+			}
+		}
+	}
+}
+}
+
+undef $accessdb;
+untie %accessdb;
+

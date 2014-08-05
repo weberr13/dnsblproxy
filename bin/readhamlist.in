@@ -1,0 +1,8 @@
+#!/bin/sh
+date=`/usr/bin/date +%m-%d-%Y`
+
+checkentry -F ham.list | sort | uniq > ham.list.clean
+checkallbl ham.list.clean  > ham.list.bl
+addentry -F -f ham.list.clean OK\ AUTO\ $date
+delentry -f ham.list.bl
+wc -l ham.list ham.list.clean ham.list.bl

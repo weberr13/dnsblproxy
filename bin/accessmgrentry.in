@@ -1,0 +1,117 @@
+#!PERL_PATH -w
+use Time::localtime;
+
+$SIG{'INT'} = 'cleanup';
+
+if ($#ARGV < 0) {
+        print "usage accessentry {opn} host [host [host]...]\n";
+}
+else {
+	$type = $ARGV[0];
+	shift @ARGV;
+	$sub = 0;
+        while (@ARGV) {
+                $tocheck[$sub++] = $ARGV[0];
+                shift @ARGV;
+        }
+}
+
+foreach $host (@tocheck) {
+  		if ( $type eq 'p' || $type eq "574" ) {
+			print "addentry $host		\"574 $host Open proxy spam source";
+		} elsif ( $type eq 'c' || $type eq "573" ) {
+			print "addentry $host		\"573 $host Network spam source";
+		} elsif ( $type eq 'o' || $type eq "572" ) {
+			print "addentry $host		\"572 $host Open relay spam source";
+		} elsif ( $type eq 'dns' ) {
+			print "addentry $host		\"Bad DNS spam source";
+		} elsif ( $type eq 'dsl' ) {
+			print "addentry $host		\"DSL spam source";
+		} elsif ( $type eq 'dict' ) {
+			print "addentry $host		\"dictionary attacker";
+		} elsif ( $type eq 's' || $type eq "571") {
+			print "addentry $host		\"571 $host Spoof HELO spam source";
+		} else {
+			print "addentry $host		\"575 $host Spam source";
+		}
+	if ( localtime->mon() == 0 ) {
+		print " 1-";
+	}
+	if ( localtime->mon() == 1 ) {
+		print " 2-";
+	}
+	if ( localtime->mon() == 2 ) {
+		print " 3-";
+	}
+	if ( localtime->mon() == 3 ) {
+		print " 4-";
+	}
+	if ( localtime->mon() == 4 ) {
+		print " 5-";
+	}
+	if ( localtime->mon() == 5 ) {
+		print " 6-";
+	}
+	if ( localtime->mon() == 6 ) {
+		print " 7-";
+	}
+	if ( localtime->mon() == 7 ) {
+		print " 8-";
+	}
+	if ( localtime->mon() == 8 ) {
+		print " 9-";
+	}
+	if ( localtime->mon() == 9 ) {
+		print " 10-";
+	}
+	if ( localtime->mon() == 10 ) {
+		print " 11-";
+	}
+	if ( localtime->mon() == 11 ) {
+		print " 12-";
+	}
+	printf "%d-%d\"\n", localtime->mday(),localtime->year() + 1900;
+}
+
+sub cleanup {
+	if ( $host ) {
+	print "addentry $host		\"575 $host Spam source";
+	if ( localtime->mon() == 0 ) {
+		print " 1-";
+	}
+	if ( localtime->mon() == 1 ) {
+		print " 2-";
+	}
+	if ( localtime->mon() == 2 ) {
+		print " 3-";
+	}
+	if ( localtime->mon() == 3 ) {
+		print " 4-";
+	}
+	if ( localtime->mon() == 4 ) {
+		print " 5-";
+	}
+	if ( localtime->mon() == 5 ) {
+		print " 6-";
+	}
+	if ( localtime->mon() == 6 ) {
+		print " 7-";
+	}
+	if ( localtime->mon() == 7 ) {
+		print " 8-";
+	}
+	if ( localtime->mon() == 8 ) {
+		print " 9-";
+	}
+	if ( localtime->mon() == 9 ) {
+		print " 10-";
+	}
+	if ( localtime->mon() == 10 ) {
+		print " 11-";
+	}
+	if ( localtime->mon() == 11 ) {
+		print " 12-";
+	}
+	printf "%d-%d\"\n", localtime->mday(),localtime->year() + 1900;
+	}
+}

@@ -1,0 +1,5 @@
+if [ "$1" = "-s" ] ; then
+tail -100000 SYSLOG_MAILLOG  | grep Spamassassin | awk  '{print $12}' | grep -v "^$" |sort | uniq -c |  sort -rn | awk '$1 > 0 {print $1" "$2" "(s+=$1)}' 
+else
+grep Spamassassin SYSLOG_MAILLOG | awk  '{print $12}' | grep -v "^$" | sort | uniq -c |  sort -rn | awk '$1 > 0 {print $1" "$2" "(s+=$1)}' 
+fi

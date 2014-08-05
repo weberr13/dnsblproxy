@@ -1,0 +1,63 @@
+#!PERL_PATH
+use IO::Pipe;
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+while ( $#ARGV > 0 ) {
+	if( $ARGV[0] =~ /-p/ ) {
+		$maillog = new IO::Pipe;
+		$maillog->reader("tail -f SYSLOG_MAILLOG");
+		shift;
+	} elsif ( $ARGV[0] =~ /-l/ ) { 
+		shift;
+		$maillog = new IO::Pipe;
+		$maillog->reader("tail -$ARGV[0] SYSLOG_MAILLOG");
+		shift;
+	} else { shift; }
+}
+
+if ( ! defined $maillog ) {
+		open($maillog,"SYSLOG_MAILLOG");
+}
+
+
+while (<$maillog>) {
+	if ( /Spamassassin spam source/ ) {
+		my @ip = split(" ",$_);
+		print "SAblack $ip[11] \n";
+	}
+	if ( /Virus spam source/ ) {
+		my @ip = split(" ",$_);
+		print "VIRUSblack $ip[11] \n";
+	}
+	if ( /HELO/ ) {
+		my @helo_total = split('HELO\.',$_);
+		my @helo = split(".---.",$helo_total[1]);
+		if ( defined $helo[1] ) {
+		chomp($helo[1]);
+		if ( $helo[1] !~ /(^128\.138)|(^127.0.0.1)|(^0$)/ ) {
+		if ( $helo[0] =~ /(([0-9]{1,3}\.[0-9]{1,3})|([0-9]{1,3}\-[0-9]{1,3}\-)|([0-9]{1,3}\_[0-9]{1,3})|([0-9]{6})|adsl|dial|client|dynamic|dsl|cable|user|ppp|catv|^ip[0-9])/i ) {
+			print "HELOblack $helo[1] $helo[0]\n";
+		}
+		elsif ( $helo[0] !~ /(.*\..*)/ ) {
+			print "HELOblack $helo[1] $helo[0]\n";
+		} elsif ( $helo[0] =~ /(^yahoo\.com$|^hotmail\.com$|^mail\.com$|^msn\.com$|^microsoft\.com$|^mailcity\.com$|\.colorado\.edu)/i ) {
+			print "HELOblack $helo[1] $helo[0]\n";
+		}
+		elsif ( $helo[0] =~ /(^[-a-zA-Z0-9]*smtp|^[-a-zA-Z0-9]*mail|^[-a-zA-Z0-9]*mx|^[-a-zA-Z0-9]*ns|[-a-zA-Z0-9]*server|\.edu$|\.mail\.|[-a-zA-Z0-9]*www|[-a-zA-Z0-9]*mta|[-a-zA-Z0-9]*out|[-a-zA-Z0-9]*web|\.mx\.|[-a-zA-Z0-9]*proxy|\.bulk\.|[-a-zA-Z0-9]*pop|^[-a-zA-Z0-9]*list|\.smtp\.|^router)/i  ) {
+			print "HELOwhite $helo[1] $helo[0]\n";
+		} else {
+			print "HELOgrey $helo[1] $helo[0]\n";
+		}
+		}
+		}
+	}
+	if ( /RDNS/ ) {
+		my @ip = split('RDNS.Fix.reverse.DNS.for.',$_);
+		if ( defined $ip[1] ) {
+			chomp($ip[1]);
+			print "RDNSblack $ip[1]\n";
+		}
+	}
+}

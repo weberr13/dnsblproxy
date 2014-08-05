@@ -1,0 +1,3 @@
+update addentry,delentry,mkdnsbl.dynamc to close db faster when doing
+nsupdates
+update scripts to use procedure calls.

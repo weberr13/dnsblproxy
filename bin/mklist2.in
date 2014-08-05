@@ -1,0 +1,51 @@
+#!/bin/sh 
+
+trap clean 1
+trap clean 2
+trap clean 15
+MAILTO=weberr
+PREFIX=$HOME/spamreport
+PATH=/sbin:/usr/bin:/usr/sbin:$PREFIX/bin; export PATH
+clean()
+{
+	echo cleaning up
+	rm -f /tmp/spamreport.sort.$$
+	mv /tmp/spamreport.out.$$ $PREFIX/report/`date +%Y%m%d`.int
+	exit 1
+}
+
+if [ $#argv -lt 1 ] ; then 
+        echo usage $0 [-n #] [-t type]  file
+        exit 1
+fi
+threshold=1
+type=none
+while [ $#argv -gt 1 ] ; do
+	case $1 in
+		-n) threshold=$2
+		    shift
+		    shift
+		    ;;
+		-t) type=$2
+		    shift
+		    shift
+		    ;;
+		*)  echo invalid argument $1
+		    exit 1
+		    ;;
+	esac
+done
+
+INSTALL_PREFIX/bin/checkentry -f $1 > /tmp/spamreport.in.$$
+spamlist=/tmp/spamreport.in.$$
+
+touch /tmp/spamreport.out.$$
+for host in `awk \{\ if\ \(\ '$1'\ \>\=\ $threshold\ \)\ print\ '$2'\} $spamlist | grep "[0-9]" | sort -t . -k 1,1n -k 2,2n -k 3,3n -k 4,4n`  ; do
+	$PREFIX/bin/dnsblproxyentry $type $host >> /tmp/spamreport.out.$$
+done
+cp /tmp/spamreport.out.$$ $PREFIX/report/`date +%Y%m%d`.new
+
+wc -l $PREFIX/report/`date +%Y%m%d`.new | mailx $MAILTO
+
+rm /tmp/spamreport.in.$$
+rm /tmp/spamreport.out.$$

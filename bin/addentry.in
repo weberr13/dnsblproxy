@@ -1,0 +1,372 @@
+#!PERL_PATH
+use DB_File;
+use DB_File::Lock;
+use Fcntl ':flock';
+
+
+if ( $#ARGV < 1 ) {
+
+	print "usage addentry [-F] [-f file]|[host] comment\n";
+	exit(1);
+
+}
+
+while ( $#ARGV > 1 ) {
+if ( $ARGV[0] =~ /-f/ ) {
+	tie(@infile,'DB_File',$ARGV[1],O_RDWR, 0644,$DB_RECNO) or die "cannot open file\n";
+	$outcount = 0;
+	$incount = @infile;
+	shift;
+} elsif ( $ARGV[0] =~ /-F/ ) {
+	$force = 1;
+	shift;
+} else {
+	print "invalid arg $ARGV[0]\n";
+	exit(1);
+}
+}
+
+	
+$NSUPDATE = "/usr/local/bind/bin/nsupdate";
+$MAXCOUNT =513;
+$COUNT=0;
+$TEMPDIR = "/tmp/addentry.dynamic";
+$DOMAIN = "bl.colorado.edu.";
+
+sub runnsupdate {
+                foreach $file ( @_ ) {
+                 do {
+                  $exit = system "$NSUPDATE < $file 2>&1 | grep Communication";
+                 } while ( $exit == 0 );
+                }
+}
+
+
+if ( ! -d $TEMPDIR ) {
+                system "rm -rf $TEMPDIR";
+                mkdir("$TEMPDIR",0777);
+		system "chgrp access $TEMPDIR";
+		system "chmod 2770 $TEMPDIR";
+}
+chdir($TEMPDIR);
+unlink(whitelist.$$);
+unlink(blacklist.$$);
+open(WL_FILE, ">whitelist.$$");
+open(BL_FILE, ">blacklist.$$");
+printf BL_FILE "server bl.colorado.edu.\n";
+printf WL_FILE "server bl.colorado.edu.\n";
+printf BL_FILE "zone bl.colorado.edu.\n";
+printf WL_FILE "zone bl.colorado.edu.\n";
+
+
+$PREFIX = "INSTALL_PREFIX";
+$DBFILE = join("/",$PREFIX,"lib/accessdbm.db");
+
+
+$accessdb = tie(%accessdb, 'DB_File::Lock', $DBFILE, O_CREAT|O_RDWR, 0664, $DB_HASH, 'write') or die "Cannot open file\n";
+
+if ($ARGV[1] =~ /([\w\.\s-\@\,]+)/ ){
+	   $val = $1;
+          } else {
+	   die "Bad data $ARGV[1]";
+}
+
+if ( defined @infile ) {
+	my $count = 0;
+	foreach $rec (@infile) {
+	  @rec = split(" ",$rec);
+	  $host = $rec[1];
+	  if ($host =~ /(^([\d]{1,3}\.){2,3}([\d]{1,3}))/ ) {
+	   $key = $1;
+          } else {
+ 	   die "Bad key";
+          }
+	  $whitelistednet = 0;
+	  
+          if ( ! defined $accessdb{$key} ) {
+	   @keys = split(/\./,$key);
+	   if ( ! defined $keys[3] ) {
+		  for $i ( 0..255) {
+		   $checkkey = join(".",$keys[0],$keys[1],$keys[2],$i);
+		   if ( defined $accessdb{$checkkey}) {
+		    if ( $accessdb{$checkkey} =~ /^OK/ && $val !~ /^OK/) {
+		     print "$checkkey whitelisted, cannot block network\n";
+		     $whitelistednet = 1;
+		    }
+		   }
+		  }
+	   }
+	   if ( !$whitelistednet ) {
+	    if ( !defined $force ) {
+	     $result = `checkdnsbl query.bondedsender.org $key`;
+	      if ( $result =~ /query/ ) {
+	       print "$key bonded sender, use -F to force block \n";
+	      } else {
+               if ( defined $rec[3]) {	
+		$realval=join(" ",$val,$rec[2],$rec[3]);
+	       } elsif ( defined $rec[2] ) {
+		$realval=join(" ",$val,$rec[2]);
+	       } else {
+		$realval=$val;
+               }	
+	       $accessdb{$key} = $realval;
+	       if ( $accessdb{$key} != $realval ) {
+	        die "Database is corrupt!!!\n";
+	       }
+	       if ( ! defined $keys[3] ) {	
+                  @fields = split(/\./,$key);
+                  $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+	       } else {
+                  @fields = split(/\./,$key);
+                  $address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+	       }
+	       $_ = $val;
+	        if ( ! /^OK/ ) {
+                        printf BL_FILE "update add %s.%s        300     IN A       127.0.0.2\n", $address,$DOMAIN;
+#                        printf BL_FILE "update add %s.%s        300     IN TXT     %s mail trouble\@mailbounce.colorado.edu to be removed\"\n",$address,$DOMAIN, $val;
+		} else {
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      A \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      A \n\n",$address,$DOMAIN;
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      TXT \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      TXT \n\n",$address,$DOMAIN;
+                        printf WL_FILE "\nupdate add %s.%s        300     IN A       127.0.0.128\n\n", $address,$DOMAIN;
+			$COUNT+=2;
+		}
+		if ( $COUNT > $MAXCOUNT ) {
+                printf BL_FILE "send\n";
+                printf WL_FILE "send\n";
+                runnsupdate("blacklist.$$","whitelist.$$");
+
+                close(WL_FILE);
+                close(BL_FILE);
+                open(WL_FILE, ">whitelist.$$");
+                open(BL_FILE, ">blacklist.$$");
+                printf BL_FILE "server bl.colorado.edu.\n";
+                printf WL_FILE "server bl.colorado.edu.\n";
+                printf BL_FILE "zone bl.colorado.edu.\n";
+                printf WL_FILE "zone bl.colorado.edu.\n";
+                $COUNT=0;
+        	} else { $COUNT+=2;}
+
+	       $outcount++;
+	       if ( $accessdb{$key} != $val ) {
+	        die "Database is corrupt!!!\n";
+	       }
+	      }
+	     } else {
+               if ( defined $rec[3]) {	
+		$realval=join(" ",$val,$rec[2],$rec[3]);
+	       } elsif ( defined $rec[2] ) {
+		$realval=join(" ",$val,$rec[2]);
+	       } else {
+		$realval=$val;
+               }	
+	      $accessdb{$key} = $realval;
+	       if ( $accessdb{$key} != $realval ) {
+	        die "Database is corrupt!!!\n";
+	       }
+	       if ( ! defined $keys[3] ) {	
+                  @fields = split(/\./,$key);
+                  $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+	       } else {
+                  @fields = split(/\./,$key);
+                  $address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+	       }
+	       $_ = $val;
+	        if ( ! /^OK/ ) {
+                        printf BL_FILE "update add %s.%s        300     IN A       127.0.0.2\n", $address,$DOMAIN;
+#                        printf BL_FILE "update add %s.%s        300     IN TXT     %s mail trouble\@mailbounce.colorado.edu to be removed\"\n",$address,$DOMAIN, $val;
+		} else {
+                        printf uL_FILE "prereq yxrrset %s.%s    IN      A \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      A \n\n",$address,$DOMAIN;
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      TXT \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      TXT \n\n",$address,$DOMAIN;
+                        printf WL_FILE "\nupdate add %s.%s        300     IN A       127.0.0.128\n\n", $address,$DOMAIN;
+			$COUNT+=2;
+		}
+		if ( $COUNT > $MAXCOUNT ) {
+                printf BL_FILE "send\n";
+                printf WL_FILE "send\n";
+                runnsupdate("blacklist.$$","whitelist.$$");
+                close(WL_FILE);
+                close(BL_FILE);
+                open(WL_FILE, ">whitelist.$$");
+                open(BL_FILE, ">blacklist.$$");
+                printf BL_FILE "server bl.colorado.edu.\n";
+                printf WL_FILE "server bl.colorado.edu.\n";
+                printf BL_FILE "zone bl.colorado.edu.\n";
+                printf WL_FILE "zone bl.colorado.edu.\n";
+                $COUNT=0;
+        	} else { $COUNT+=2;}
+	      $outcount++;
+	      if ( $accessdb{$key} != $val ) {
+	       die "Database is corrupt!!!\n";
+	      }
+             }
+           }
+          } else {
+#	   print "$key exists, please delete first\n"; 
+	       $valold = $accessdb[$key];
+	       if ( ! defined $keys[3] ) {	
+                  @fields = split(/\./,$key);
+                  $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+	       } else {
+                  @fields = split(/\./,$key);
+                  $address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+	       }
+	       $_ = $valold;
+	        if ( ! /^OK/ ) {
+                        printf BL_FILE "update add %s.%s        300     IN A       127.0.0.2\n", $address,$DOMAIN;
+#                        printf BL_FILE "update add %s.%s        300     IN TXT     %s mail trouble\@mailbounce.colorado.edu to be removed\"\n",$address,$DOMAIN, $valold;
+		} else {
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      A \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      A \n\n",$address,$DOMAIN;
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      TXT \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      TXT \n\n",$address,$DOMAIN;
+                        printf WL_FILE "\nupdate add %s.%s        300     IN A       127.0.0.128\n\n", $address,$DOMAIN;
+			$COUNT+=2;
+		}
+		if ( $COUNT > $MAXCOUNT ) {
+                printf BL_FILE "send\n";
+                printf WL_FILE "send\n";
+                runnsupdate("blacklist.$$","whitelist.$$");
+                close(WL_FILE);
+                close(BL_FILE);
+                open(WL_FILE, ">whitelist.$$");
+                open(BL_FILE, ">blacklist.$$");
+                printf BL_FILE "server bl.colorado.edu.\n";
+                printf WL_FILE "server bl.colorado.edu.\n";
+                printf BL_FILE "zone bl.colorado.edu.\n";
+                printf WL_FILE "zone bl.colorado.edu.\n";
+                $COUNT=0;
+        	} else { $COUNT+=2;}
+	  }
+	  $count++;
+	  if ( $count > 10 ) {
+		$count = 0;
+		print ".";
+	  }
+	}
+	print "Added $outcount/$incount entries to access\n";
+	untie %accessdb;
+	untie @infile;
+} else {
+if ($ARGV[0] =~ /(^([\d]{1,3}\.){2,3}([\d]{1,3}))/ ) {
+	$key = $1;
+} else {
+ 	die "Bad key";
+}
+
+if ( ! defined $accessdb{$key} ) {
+
+	  @keys = split(/\./,$ARGV[0]);
+
+	  if ( ! defined $keys[3] ) {
+		  for $i ( 0..255) {
+		   $checkkey = join(".",$keys[0],$keys[1],$keys[2],$i);
+		   if ( defined $accessdb{$checkkey}) {
+		    if ( $accessdb{$checkkey} =~ /^OK/ && $val !~ /^OK/) {
+		     die "$checkkey whitelisted, cannot block network\n";
+		    }
+		   }
+		  }
+	   }
+		
+
+	  if ( !defined $force ) {
+	  $result = `checkdnsbl query.bondedsender.org $key`;
+	  if ( $result =~ /query/ ) {
+		print "$key bonded sender, use -F to force block \n";
+		exit(1);
+	  }
+	  }
+	$accessdb{$key} = $val;
+	       if ( $accessdb{$key} != $val ) {
+	        die "Database is corrupt!!!\n";
+	       }
+	       if ( ! defined $keys[3] ) {	
+                  @fields = split(/\./,$key);
+                  $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+	       } else {
+                  @fields = split(/\./,$key);
+                  $address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+	       }
+	       $_ = $val;
+	        if ( ! /^OK/ ) {
+                        printf BL_FILE "update add %s.%s        300     IN A       127.0.0.2\n", $address,$DOMAIN;
+#                        printf BL_FILE "update add %s.%s        300     IN TXT     %s mail trouble\@mailbounce.colorado.edu to be removed\"\n",$address,$DOMAIN, $val;
+		} else {
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      A \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      A \n\n",$address,$DOMAIN;
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      TXT \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      TXT \n\n",$address,$DOMAIN;
+                        printf WL_FILE "\nupdate add %s.%s        300     IN A       127.0.0.128\n\n", $address,$DOMAIN;
+			$COUNT+=2;
+		}
+		if ( $COUNT > $MAXCOUNT ) {
+                printf BL_FILE "send\n";
+                printf WL_FILE "send\n";
+                runnsupdate("blacklist.$$","whitelist.$$");
+                close(WL_FILE);
+                close(BL_FILE);
+                open(WL_FILE, ">whitelist.$$");
+                open(BL_FILE, ">blacklist.$$");
+                printf BL_FILE "server bl.colorado.edu.\n";
+                printf WL_FILE "server bl.colorado.edu.\n";
+                printf BL_FILE "zone bl.colorado.edu.\n";
+                printf WL_FILE "zone bl.colorado.edu.\n";
+                $COUNT=0;
+        	} else { $COUNT+=2;}
+		if ( $accessdb{$key} != $val ) {
+			die "Database is corrupt!!!\n";
+		}
+} else {
+	print "$key exists, please delete first\n"; 
+	       $valold = $accessdb[$key];
+	       if ( ! defined $keys[3] ) {	
+                  @fields = split(/\./,$key);
+                  $address = join(".","*",$fields[2],$fields[1],$fields[0]);
+	       } else {
+                  @fields = split(/\./,$key);
+                  $address = join(".",$fields[3],$fields[2],$fields[1],$fields[0]);
+	       }
+	       $_ = $valold;
+	        if ( ! /^OK/ ) {
+                        printf BL_FILE "update add %s.%s        300     IN A       127.0.0.2\n", $address,$DOMAIN;
+#                        printf BL_FILE "update add %s.%s        300     IN TXT     %s mail trouble\@mailbounce.colorado.edu to be removed\"\n",$address,$DOMAIN, $valold;
+		} else {
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      A \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      A \n\n",$address,$DOMAIN;
+                        printf WL_FILE "prereq yxrrset %s.%s    IN      TXT \n",$address,$DOMAIN;
+                        printf WL_FILE "update delete %s.%s     IN      TXT \n\n",$address,$DOMAIN;
+                        printf WL_FILE "\nupdate add %s.%s        300     IN A       127.0.0.128\n\n", $address,$DOMAIN;
+			$COUNT+=2;
+		}
+		if ( $COUNT > $MAXCOUNT ) {
+                printf BL_FILE "send\n";
+                printf WL_FILE "send\n";
+                runnsupdate("blacklist.$$","whitelist.$$");
+                close(WL_FILE);
+                close(BL_FILE);
+                open(WL_FILE, ">whitelist.$$");
+                open(BL_FILE, ">blacklist.$$");
+                printf BL_FILE "server bl.colorado.edu.\n";
+                printf WL_FILE "server bl.colorado.edu.\n";
+                printf BL_FILE "zone bl.colorado.edu.\n";
+                printf WL_FILE "zone bl.colorado.edu.\n";
+                $COUNT=0;
+        	} else { $COUNT+=2;}
+}
+untie %accessdb;
+}
+printf BL_FILE "send\n";
+printf WL_FILE "send\n";
+if ( $COUNT != 0 ) { 
+runnsupdate("blacklist.$$","whitelist.$$");
+}
+
+close(WL_FILE);
+close(BL_FILE);
+
+unlink("whitelist.$$");
+unlink("blacklist.$$");

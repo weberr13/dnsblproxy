@@ -1,0 +1,14 @@
+#!/usr/local/bin/tcsh
+
+set date = `date +%m-%d-%Y`
+
+foreach i ( `cat blocks.list | sort | uniq` )
+# foreach j ( `cat blocks.$i | awk '{print $1}'` )
+  checkentry -f blocks.$i > blocks.$i.
+  addentry -F -f blocks.$i. "$i Spam source $date"
+# end
+ rm blocks.$i blocks.$i.
+end
+rm blocks.list
+   
+	
